@@ -72,6 +72,7 @@ flowchart LR
 | [docs/PRD.md](docs/PRD.md) | What are we building, for whom, which flows, in what order |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the system is designed inside |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it is built this way (ADRs), trade-offs accepted |
+| [docs/tasks/](docs/tasks/README.md) | Who builds what: per-program task breakdown (specs, tests, edge cases) for M0–M4 |
 
 ---
 
