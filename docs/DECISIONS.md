@@ -76,8 +76,8 @@
 ## ADR-012: Whitelabel base — brand is data, tenant-scoped from day one (2026-07-11)
 
 **Context**: Toku wants PhotoMob as a base product serving **both** futures: sold as a single-brand install to a client, or run as a multi-brand SaaS. Building SaaS machinery now would violate our right-sizing stance; ignoring it would bake a migration crawl into every table and hardcoded brand string.
-**Decision**: Single-tenant is just multi-tenant with one tenant row. `ORGANIZATION` sits above `STORE`; brand config (theme tokens, logo, name, fonts, copy, domain, gallery-PIN default) is zod-validated **data on the org**, served as a brand manifest that web and booth hydrate their themes from — zero hardcoded brand anywhere; PRD §6 "clean but fun" is the seed/default config. Standalone deployment = same artifact, one org row. **Deferred until a second client exists**: tenant self-signup, billing, plan limits, domain-based org resolution, tenant admin console.
-**Trade-off**: One extra level of indirection (org → store) and a manifest fetch that every UI must respect from day one — cheap. In exchange, "convert to SaaS" is adding rows and a resolver, never a schema migration or brand-string hunt.
+**Decision**: Single-tenant is just multi-tenant with one tenant row. `TENANT` sits above `STORE`; brand config (theme tokens, logo, name, fonts, copy, domain, gallery-PIN default) is zod-validated **data on the tenant**, served as a brand manifest that web and booth hydrate their themes from — zero hardcoded brand anywhere; PRD §6 "clean but fun" is the seed/default config. Standalone deployment = same artifact, one tenant row. **Deferred until a second client exists**: tenant self-signup, billing, plan limits, domain-based tenant resolution, tenant admin console.
+**Trade-off**: One extra level of indirection (tenant → store) and a manifest fetch that every UI must respect from day one — cheap. In exchange, "convert to SaaS" is adding rows and a resolver, never a schema migration or brand-string hunt.
 
 ## ADR-013: Receipt printing — print-CSS + silent kiosk printing now, ESC/POS behind `IReceiptPrinter` later (2026-07-11)
 
@@ -99,7 +99,7 @@
 
 ## ADR-016: Stack pivot — .NET backend, polyrepo split, product codename "Potoku" (2026-07-11)
 
-**Context**: Toku redirected the stack: backend in **.NET (ASP.NET Core)** with PostgreSQL, Redis, Docker, Clean Architecture + DDD + SOLID; development split into three repos (this repo remains **planning docs only**); platform web as **React + Vite SPA**. Supersedes the backend half of ADR-001 (full-TS monorepo) and the ORM in ADR-007 (Prisma → EF Core); PostgreSQL, integer-IDR money, storeId/orgId scoping all stand.
+**Context**: Toku redirected the stack: backend in **.NET (ASP.NET Core)** with PostgreSQL, Redis, Docker, Clean Architecture + DDD + SOLID; development split into three repos (this repo remains **planning docs only**); platform web as **React + Vite SPA**. Supersedes the backend half of ADR-001 (full-TS monorepo) and the ORM in ADR-007 (Prisma → EF Core); PostgreSQL, integer-IDR money, storeId/tenantId scoping all stand.
 **Decision**:
 - **Repos**: [`potoku`](https://github.com/tokudev-id/potoku) = booth app (Electron + React, npm workspaces incl. `@potoku/template-kit`); [`potoku-api`](https://github.com/tokudev-id/potoku-api) = .NET 8 LTS backend (Domain / Application / Infrastructure / Api projects, EF Core + Npgsql, Redis behind cache/rate-limit abstractions, docker-compose); [`potoku-platform-web`](https://github.com/tokudev-id/potoku-platform-web) = React + Vite SPA (admin/client management, SaaS platform surface, public gallery `/g/:code`). `photomob` = planning docs only.
 - **Cross-stack contracts**: the .NET API is the single source via OpenAPI → generated TS clients in both TS repos (replaces `packages/shared` DTOs).

@@ -77,7 +77,7 @@ Modules sized by the adaptive scale: simple CRUD stays Level 1 (controller → s
 | `auth` | 1 | Staff login (JWT), guards: `StaffGuard`, `DeviceGuard`, public rate-limited gallery routes | |
 | `users` | 1 | Staff/admin accounts, roles (ADMIN, STAFF) | |
 | `catalog` | 1 | Packages (price, session duration, shooting window + shot cap, allowed template categories, link TTL) | |
-| `branding` | 1 | Organization + brand config (theme tokens, logo, name, copy, domain); public brand-manifest endpoint | Org = the tenant; standalone deployments have exactly one org row (ADR-012) |
+| `branding` | 1 | Tenant + brand config (theme tokens, logo, name, copy, domain); public brand-manifest endpoint | Standalone deployments have exactly one tenant row (ADR-012) |
 | `bookings` | 2 | Bookings + payment records (sub-resource) | Status transitions; check-in requires completed payment (override logged) |
 | `sessions` | 2 | Session lifecycle, code issue/validate, session events | State machine (§6); codes single-use, time-window bound |
 | `templates` | 2 | Template configs + assets, versioning, activation | Versions immutable once a session references them |
@@ -91,7 +91,7 @@ Per-layer DTOs only where a layer boundary actually exists (controller DTOs ≠ 
 
 **Database**: PostgreSQL + Prisma. Money as integer (IDR has no cents). All domain tables carry `storeId` from day one — multi-store later is a UI problem, not a migration problem.
 
-**Tenancy** (ADR-012): `ORGANIZATION` sits above `STORE`; every store belongs to an org, and brand config lives on the org. A standalone single-brand install is the same artifact running with **one org row** — SaaS mode is "more rows + domain-based org resolution", not different code. No tenant logic beyond org scoping exists in v1 (no signup, billing, or plan limits).
+**Tenancy** (ADR-012): `TENANT` sits above `STORE`; every store belongs to a tenant, and brand config lives on the tenant. A standalone single-brand install is the same artifact running with **one tenant row** — SaaS mode is "more rows + domain-based tenant resolution", not different code. No tenant logic beyond tenant scoping exists in v1 (no signup, billing, or plan limits).
 
 ---
 
@@ -240,7 +240,7 @@ A template is **config + assets**, versioned, validated by a zod schema in `pack
 
 ```mermaid
 erDiagram
-    ORGANIZATION ||--o{ STORE : owns
+    TENANT ||--o{ STORE : owns
     STORE ||--o{ USER : employs
     STORE ||--o{ DEVICE : hosts
     STORE ||--o{ PACKAGE : offers
@@ -254,7 +254,7 @@ erDiagram
     TEMPLATE ||--o{ TEMPLATE_VERSION : versions
     TEMPLATE_VERSION ||--o{ SESSION : "used by"
 
-    ORGANIZATION { string name string domain json brandConfig }
+    TENANT { string name string domain json brandConfig }
     BOOKING { string customerName string customerPhone datetime scheduledAt string status }
     PAYMENT { int amountIdr string method string recordedBy }
     SESSION { string code string status datetime endsAt }
@@ -265,7 +265,7 @@ erDiagram
 
 Notes:
 - `MEDIA_ASSET.kind`: `RAW_SHOT | COMPOSED | THUMB`.
-- `ORGANIZATION.brandConfig`: zod-validated theme tokens (accent, pastel set, fonts, logo refs, copy overrides, gallery-PIN default) — the whitelabel surface (ADR-012). Store-level overrides only if a real client ever needs them.
+- `TENANT.brandConfig`: zod-validated theme tokens (accent, pastel set, fonts, logo refs, copy overrides, gallery-PIN default) — the whitelabel surface (ADR-012). Store-level overrides only if a real client ever needs them.
 - `PACKAGE` carries: price, session duration, shooting-window seconds, shot cap, allowed categories, prints included, link TTL days, retention days.
 - Booking statuses: `CONFIRMED → CHECKED_IN → COMPLETED` (+ `CANCELLED`, `NO_SHOW`). Draft/quote states are v1 non-goals.
 
@@ -275,7 +275,7 @@ Notes:
 
 | Audience | Mechanism |
 |---|---|
-| Staff/Admin | Email+password → JWT (short-lived) + refresh; RBAC `ADMIN`/`STAFF`; admin-only: templates, packages, users, retention overrides. All queries org/store-scoped from the authenticated user — SaaS mode adds no new auth code (ADR-012) |
+| Staff/Admin | Email+password → JWT (short-lived) + refresh; RBAC `ADMIN`/`STAFF`; admin-only: templates, packages, users, retention overrides. All queries tenant/store-scoped from the authenticated user — SaaS mode adds no new auth code (ADR-012) |
 | Booth device | Registered device → hashed API token in env/OS keystore; scoped to session/media/template endpoints for its store; heartbeat carries health |
 | Customer gallery | No account. `shortCode` ≥ 10 chars base32 (~50 bits) + 4-digit PIN (hashed); lookup rate-limited per IP; media served via **time-limited signed URLs** (no direct paths); `noindex`; expired = 404-equivalent page |
 
@@ -307,7 +307,7 @@ Cross-cutting: TLS everywhere (Caddy auto-TLS), Prisma parameterization, class-v
 | Multi-store UI | Admin store-switcher + per-store reporting | Data model (storeId is everywhere already) |
 | S3/CDN media | New `IStorageProvider` adapter + signed URL impl | `media` module logic, gallery |
 | Canon EDSDK | New `ICamera` adapter (native bindings) | Entire booth flow |
-| SaaS mode (multi-brand, one instance) | Org resolution by domain, tenant self-signup, billing, plan limits | Data model (org is already the tenant), auth scoping, every app |
+| SaaS mode (multi-brand, one instance) | Tenant resolution by domain, tenant self-signup, billing, plan limits | Data model (tenant is already first-class), auth scoping, every app |
 | ESC/POS receipts | `IReceiptPrinter` + TCP:9100 adapter (LAN thermal printer) | Receipt content, booking flow |
 | Gallery link on the purchase receipt | Pre-issue delivery link at session *creation* with TTL anchored to completion (today it's issued at activation, ADR-010) | Gallery, delivery module shape |
 | GIF/boomerang | New `MEDIA_ASSET.kind` + composer step + gallery tile | Session flow shape |

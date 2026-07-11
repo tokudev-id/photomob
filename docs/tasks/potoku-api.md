@@ -13,10 +13,10 @@ Milestone M0 · Size S · Level junior · Depends: —
 **Context**: The scaffold has a `PotokuDbContext` but no migrations. Everything else builds on this.
 
 **Spec**
-- Create initial migration for the existing model (Organization, Store, Session, SessionEvent).
+- Create initial migration for the existing model (Tenant, Store, Session, SessionEvent).
 - `dotnet ef` tooling wired; migrations live in `Infrastructure/Persistence/Migrations`.
 - Startup behavior: `Database.Migrate()` on boot **only** when `Database:MigrateOnStartup=true` (true in docker-compose, false in tests).
-- Dev seed (idempotent, runs only when DB has zero orgs): one Organization ("Potoku Dev", brandConfig = default theme JSON), one Store ("Dev Store").
+- Dev seed (idempotent, runs only when DB has zero tenants): one Tenant ("Potoku Dev", brandConfig = default theme JSON), one Store ("Dev Store").
 
 **Steps**: add `Microsoft.EntityFrameworkCore.Tools` → `dotnet ef migrations add Initial` → seed class `DevSeeder` called from Program behind config flag → verify `docker compose up` gives a migrated, seeded DB.
 
@@ -27,13 +27,13 @@ Milestone M0 · Size S · Level junior · Depends: —
 
 **Tests**
 - `Migrate_from_empty_database_succeeds` — Given empty Postgres (Testcontainers, see API-009), When migrate, Then all 4 tables exist.
-- `Seed_is_idempotent` — When seeder runs twice, Then still exactly 1 org / 1 store.
+- `Seed_is_idempotent` — When seeder runs twice, Then still exactly 1 tenant / 1 store.
 
 **Edge cases**
-- Seed must not run when any org exists (a wiped-then-restored prod DB must not get a "Potoku Dev" org).
+- Seed must not run when any tenant exists (a wiped-then-restored prod DB must not get a "Potoku Dev" tenant).
 - Concurrent boot (2 API replicas migrating simultaneously) — acceptable for now, but document the risk in the migration README section.
 
-**Out of scope**: any new entity, auth, multi-org resolution.
+**Out of scope**: any new entity, auth, multi-tenant resolution.
 
 ---
 
@@ -345,8 +345,8 @@ Milestone M1 · Size S · Level junior · Depends: API-003 (full packages arrive
 Milestone M2 · Size L · Level mid · Depends: API-009
 
 **Spec**
-- `User`: OrgId, StoreId?, Email (unique per org), PasswordHash (ASP.NET `PasswordHasher`), Role (Admin|Staff), Status.
-- `POST /api/auth/login` → access JWT (15 min; claims: userId, orgId, storeId, role) + refresh token (30 days, opaque, hashed at rest, **rotating**: each refresh invalidates the old one; reuse of a rotated token revokes the whole family — token-theft tripwire).
+- `User`: TenantId, StoreId?, Email (unique per tenant), PasswordHash (ASP.NET `PasswordHasher`), Role (Admin|Staff), Status.
+- `POST /api/auth/login` → access JWT (15 min; claims: userId, tenantId, storeId, role) + refresh token (30 days, opaque, hashed at rest, **rotating**: each refresh invalidates the old one; reuse of a rotated token revokes the whole family — token-theft tripwire).
 - `POST /api/auth/refresh`, `POST /api/auth/logout` (revokes family).
 - Policies: `AdminOnly`, `StaffOrAdmin`. Apply to template/package/user admin endpoints retroactively (sweep API-010..012 markers).
 - Login rate limit: 5 failures / 15 min per email+IP → 429 (in-memory now; Redis via API-028's limiter if present).
@@ -357,14 +357,14 @@ Milestone M2 · Size L · Level mid · Depends: API-009
 
 **Edge cases**: user disabled mid-session → next request 401 (check status in validation, not just signature); clock skew ±2 min tolerated on `exp`; password hash upgrades (rehash-on-login when iteration count changes — document).
 
-### API-021 · Org/store scoping enforcement
+### API-021 · Tenant/store scoping enforcement
 Milestone M2 · Size M · Level mid · Depends: API-020
 
-**Spec**: `ICurrentContext` (orgId, storeId?, role) from claims; EF **global query filters** on OrgId for every tenant-owned entity (via Store join or denormalized OrgId — denormalize, it's simpler and index-friendly); writes stamp ids from context, never from request bodies. Admin with no storeId sees all stores of the org; staff locked to their store. Cross-tenant access returns 404.
+**Spec**: `ICurrentContext` (tenantId, storeId?, role) from claims; EF **global query filters** on TenantId for every tenant-owned entity (via Store join or denormalized TenantId — denormalize, it's simpler and index-friendly); writes stamp ids from context, never from request bodies. Admin with no storeId sees all stores of the tenant; staff locked to their store. Cross-tenant access returns 404.
 
-**AC**: a request can never read/write another org's rows even with a forged id in the URL (integration test with two seeded orgs is the proof); no handler contains a manual `Where(x => x.OrgId ==)` — filters do it (review checklist).
+**AC**: a request can never read/write another tenant's rows even with a forged id in the URL (integration test with two seeded tenants is the proof); no handler contains a manual `Where(x => x.TenantId ==)` — filters do it (review checklist).
 
-**Tests**: `Cross_org_read_is_404_for_every_resource` (parameterized over: sessions, templates, packages, bookings, devices, users), `Staff_cannot_touch_other_store`, `Body_supplied_storeId_is_ignored`.
+**Tests**: `Cross_tenant_read_is_404_for_every_resource` (parameterized over: sessions, templates, packages, bookings, devices, users), `Staff_cannot_touch_other_store`, `Body_supplied_storeId_is_ignored`.
 
 **Edge cases**: background jobs (purge) run without a user context — they must bypass filters explicitly via `IgnoreQueryFilters()` with a justifying comment; gallery endpoints are tenant-less by design (shortCode is the capability) — assert they still work.
 
@@ -414,7 +414,7 @@ Milestone M2 · Size M · Level mid · Depends: API-024, API-013
 ### API-026 · Audit log
 Milestone M2 · Size S · Level junior · Depends: API-020
 
-**Spec**: `AuditEntry` (OrgId, ActorUserId, Action string, TargetType, TargetId, ReasonText?, DataJson?, At). Write-only via `IAuditWriter`; wired into: check-in override, link resend/extend (M3), retention override, user role changes, device revoke, template activation. `GET /api/audit` admin-only, filter by target/date.
+**Spec**: `AuditEntry` (TenantId, ActorUserId, Action string, TargetType, TargetId, ReasonText?, DataJson?, At). Write-only via `IAuditWriter`; wired into: check-in override, link resend/extend (M3), retention override, user role changes, device revoke, template activation. `GET /api/audit` admin-only, filter by target/date.
 
 **Tests**: `Override_checkin_writes_audit_with_reason`, `Audit_is_append_only` (no update/delete endpoint exists — assert via OpenAPI walk).
 
@@ -423,7 +423,7 @@ Milestone M2 · Size S · Level junior · Depends: API-020
 ### API-027 · Brand manifest (whitelabel surface)
 Milestone M2 · Size M · Level mid · Depends: API-021; cross-repo: token contract with WEB-025/BOOTH renderer
 
-**Spec**: `GET /api/brand` (anonymous, resolved: single-org install → the org; else by `Host` header against `Organization.Domain`, fallback default) → `{ name, logoUrl, colors: {...}, fonts: {...}, copy: {...}, galleryPinRequired }`; ETag + 5 min cache (Redis if present, memory else). `PUT /api/admin/brand` (admin) validates against brand-config JSON Schema (same generated-from-zod pattern as API-011).
+**Spec**: `GET /api/brand` (anonymous, resolved: single-tenant install → the tenant; else by `Host` header against `Tenant.Domain`, fallback default) → `{ name, logoUrl, colors: {...}, fonts: {...}, copy: {...}, galleryPinRequired }`; ETag + 5 min cache (Redis if present, memory else). `PUT /api/admin/brand` (admin) validates against brand-config JSON Schema (same generated-from-zod pattern as API-011).
 
 **Tests**: `Etag_304_roundtrip`, `Unknown_host_returns_default_brand`, `Invalid_brand_config_422_with_pointers`, `Cache_invalidated_on_update`.
 
