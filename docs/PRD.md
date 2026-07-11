@@ -6,13 +6,14 @@
 
 ## 1. Vision & Goals
 
-**Vision**: A production-ready, template-driven self photo booth that one store can operate daily — and that can grow (more templates, online booking, more stores) without rework.
+**Vision**: A production-ready, template-driven self photo booth that one store can operate daily — and that can grow (more templates, online booking, more stores) without rework. PhotoMob is a **whitelabel base**: one codebase that ships either as a single-brand install for a client or as a multi-brand SaaS ([ADR-012](DECISIONS.md)).
 
 **Goals**
 1. **End to end**: booking → payment → booth session → print → digital delivery → after-sales, all in one system.
 2. **Template as data**: frames/styles are content managed by admin, not code. New look = upload assets, not redeploy.
-3. **DSLR made easy**: camera integration behind a clean interface; booth still works with a webcam if the DSLR fails or is absent.
+3. **DSLR made easy**: camera integration behind a clean interface, **brand-agnostic** (Canon/Nikon/Sony via the same adapter); booth still works with a webcam if the DSLR fails or is absent.
 4. **Right-sized**: production quality (auth, state machines, retention, offline tolerance) without enterprise ceremony.
+5. **Whitelabel-ready**: brand (name, logo, colors, fonts, copy, domain) is data, not code — §6 is the *default* theme, not the only one.
 
 **Non-goals for v1** (deferred, see §6)
 - Online self-booking + payment gateway
@@ -20,6 +21,7 @@
 - Multi-store management UI (data model supports it; UI later)
 - Visual drag-and-drop template designer (v1 uses JSON config + asset upload)
 - AI features (background removal, beauty filters)
+- SaaS product machinery (tenant self-signup, billing, plan limits) — the data model is tenant-ready from day one ([ADR-012](DECISIONS.md)); the product features come when there's a second client
 
 ---
 
@@ -55,7 +57,7 @@ flowchart LR
 
 1. Staff opens **New Booking** in the web app: customer name + phone, package, party size, now-or-scheduled time.
 2. Staff records payment: amount auto-filled from package, method = cash / QRIS / transfer (payment happens outside the system in v1; we **record** it).
-3. On payment complete → booking is **CONFIRMED** and a **session code** (short, keypad-friendly) is issued — printed on the receipt or just told to the customer.
+3. On payment complete → booking is **CONFIRMED** and a **session code** (short, keypad-friendly) is issued — printed big on an **80mm thermal receipt** (brand header, package, amount, method, session code). v1 prints the receipt from the staff browser via print-CSS + silent kiosk printing; the ESC/POS path is a known upgrade ([ADR-013](DECISIONS.md)). The gallery QR + PIN are *not* on the receipt — they're issued at the booth (F2 screen 9) and resendable by staff (F4).
 4. Scheduled bookings: same flow, session code activates only within its time window.
 
 Rules:
@@ -72,8 +74,8 @@ The heart of the product. Screen-by-screen:
 | 2 | **Code entry** | Big keypad, customer enters session code → API validates → session ACTIVE, timer starts (package duration, e.g. 10 min, always visible) |
 | 3 | **Template pick** | Categories allowed by package (Strip 2×6 / 4R 4×6 / Polaroid). Big previews. Templates are cached locally — works offline |
 | 4 | **Get ready** | Full-screen live view, framing guide, "Find your pose!" |
-| 5 | **Capture** | Fixed shot count from package (e.g. **8 shots**). Each: 5-4-3-2-1 countdown → DSLR fires → 2s preview → auto-advance. Shutter sound + flash animation |
-| 6 | **Select** | All shots in a film-strip; customer taps shots into the template's slots (e.g. best 4 of 8). **Retake** available per slot while time remains |
+| 5 | **Capture** | **Shooting window** from the package (e.g. 3 min), not a fixed count ([ADR-014](DECISIONS.md)). Loop: 5-4-3-2-1 countdown → DSLR fires → 2s preview → next, until the window ends or the customer taps **"I'm done"**. Hard shot cap (e.g. 30) keeps storage/upload bounded. Shutter sound + flash animation |
+| 6 | **Select** | All shots in a film-strip; customer picks **exactly as many as the template has slots** (polaroid/4R = 1, strip = 4). Unpicked shots still reach the digital gallery. **"Shoot more"** returns to Capture while window time remains |
 | 7 | **Style** | Frame color variants defined by the template (e.g. cream / sage / sky). Keep it light in v1 — variants only, no free-form editor |
 | 8 | **Confirm & print** | Final preview → "Print!" → composing (~2s) → printing progress with a fun animation |
 | 9 | **QR / delivery** | Big QR + short URL + PIN: "Scan to get all your photos!" Digital gallery includes the composed strip **and** all raw shots |
@@ -107,6 +109,14 @@ Rules & resilience:
 - Admin uploads assets + config, previews the rendered result with sample photos, then **activates**. Versioned: a session references the exact template version it used.
 - Booth syncs active templates on start + periodically; caches assets locally.
 
+### F6 — Booth Setup & Settings (staff, on-device) — [ADR-015](DECISIONS.md)
+
+- Hidden gesture (e.g. 5 taps in a corner) + staff passcode opens **Settings**; locked while a session is active.
+- **Camera picker**: one unified list — DSLRs found by digiCamControl + every plugged webcam — choose primary *and* fallback. Live preview while choosing.
+- **Printer picker**: hot-folder mode (pick folder — DNP) or driver mode (pick from installed Windows printers — HiTi and others).
+- **Test buttons**: Test capture, Test print, and a full **hardware check** (capture → compose → sample print) with a pass/fail report — self-service hardware certification.
+- Config persists locally (survives restarts, works offline); export/import for provisioning the next booth; admin dashboard shows each booth's hardware via heartbeat.
+
 ---
 
 ## 5. Milestones — "Success Feeling First"
@@ -116,7 +126,7 @@ Each milestone ends with something that **works end to end** and feels good to d
 | Milestone | Slice | The demo moment |
 |---|---|---|
 | **M0 — Walking skeleton** | Monorepo, booth (webcam), 1 hardcoded template, compose, upload, gallery link | *Take a photo at the booth, scan the QR, see your strip on your phone.* The magic works. |
-| **M1 — Real booth** | digiCamControl DSLR + live view, template sync from API, full capture→select→style flow, hot-folder printing | *A stranger completes a session alone and holds a printed strip.* |
+| **M1 — Real booth** | digiCamControl DSLR + live view, template sync from API, full capture→select→style flow, printing (hot-folder + driver), settings screen with camera/printer pickers + hardware check (F6) | *A stranger completes a session alone and holds a printed strip — on hardware staff picked themselves.* |
 | **M2 — Store operations** | Staff/admin auth, bookings, packages, payment recording, session codes, code-gated booth | *Staff sells a session; the receipt code starts the booth.* |
 | **M3 — Delivery & after-sales** | Expiring links + PIN, retention purge job, find/resend/extend/reprint, dashboard | *A customer comes back day 6: staff extends their link in 10 seconds.* |
 | **M4 — Hardening** | Offline queue polish, device heartbeat + health alerts, kiosk lockdown, crash recovery, backups | *Unplug the network mid-session; nothing is lost.* |
@@ -126,7 +136,7 @@ Each milestone ends with something that **works end to end** and feels good to d
 
 ## 6. Theme & Design Direction — "Clean, but Fun"
 
-Explicitly **not** boothlev's neo-brutalism.
+This is the **default theme of the whitelabel base** — every token below (accent, pastels, type, copy voice) lives in brand config ([ADR-012](DECISIONS.md)), not in code. Explicitly **not** boothlev's neo-brutalism.
 
 - **Base is clean**: generous white space, soft off-white surfaces, near-black ink text, rounded-2xl geometry, soft shadows, calm grids.
 - **Fun lives in the accents**: one saturated accent color (e.g. coral/tangerine family), pastel secondary set that echoes template variants, springy micro-animations, a confetti moment when the print starts, friendly copy ("Find your pose!" not "Step 4 of 9").
@@ -148,11 +158,11 @@ Explicitly **not** boothlev's neo-brutalism.
 
 ## 8. Open Questions
 
-Confirmed decisions live in [DECISIONS.md](DECISIONS.md). Still open — needed before/during M1–M2:
+Confirmed decisions live in [DECISIONS.md](DECISIONS.md). Resolved 2026-07-11: camera is brand-agnostic (ADR-002 update), capture is duration-based (ADR-014), receipt printing confirmed (ADR-013), branding is whitelabel config (ADR-012), PIN is store config default-ON (ADR-010 update).
 
-1. **Camera brand/model?** digiCamControl favors Canon/Nikon. Determines live-view quality settings and cable/tether setup.
-2. **Printer model?** DNP (e.g. DS-RX1HS) vs HiTi — decides hot-folder utility vs driver printing details.
-3. **Shot count & session duration per package?** (assumed 8 shots / 10 min for the base package)
-4. **Receipt printing?** Does the counter have a receipt printer for the session code + QR, or is the code shown/told only?
-5. **Branding**: final name ("PhotoMob"?), domain, accent color.
-6. **Gallery PIN** — require always, or only when staff enables it per booking?
+Still open — needed before/during M1–M2:
+
+1. **First printer unit to certify?** Both brands are supported by design (ADR-006 update: DNP → hot folder, HiTi → driver/spooler) — the open item is which physical unit to buy for M1 certification.
+2. **First certified camera body?** Design is brand-agnostic, but M1 validation needs one physical DSLR to certify (and start the supported-hardware matrix).
+3. **Receipt printer hardware?** Any 80mm ESC/POS unit works (Epson TM-T82 class ~Rp 950rb–2.4jt, Xprinter class ~Rp 650rb); pure purchasing choice, architecture is indifferent.
+4. **Package config values**: shooting-window length, shot cap, session duration per package — config values to tune in M2, not design blockers.

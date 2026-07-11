@@ -1,14 +1,22 @@
-# PhotoMob
+# PhotoMob → Potoku (Planning Docs)
 
 Self photo booth system, end to end: booking at the store → DSLR-powered self-service capture → on-site printing → digital delivery through expiring gallery links.
 
-> **Status: Design phase — no code yet.** Start with [docs/PRD.md](docs/PRD.md).
+> **Status: This repo is planning documentation only** ([ADR-016](docs/DECISIONS.md)). Code lives in three repos under the product codename **Potoku**:
+>
+> | Repo | What | Stack |
+> |---|---|---|
+> | [potoku](https://github.com/tokudev-id/potoku) | Booth app | Electron + React + `@potoku/template-kit` |
+> | [potoku-api](https://github.com/tokudev-id/potoku-api) | Backend | .NET 8 · Clean Architecture + DDD · EF Core/PostgreSQL · Redis · Docker |
+> | [potoku-platform-web](https://github.com/tokudev-id/potoku-platform-web) | Admin + SaaS platform + public gallery | React + Vite |
+>
+> Start with [docs/PRD.md](docs/PRD.md).
 
 ---
 
 ## What Is This?
 
-PhotoMob is a **template-driven** photo booth platform for a physical store. Frames, layouts, and styles are data + assets managed from the admin panel — never code — so new looks ship without redeploying the booth.
+PhotoMob is a **template-driven, whitelabel** photo booth platform for a physical store. Frames, layouts, and styles are data + assets managed from the admin panel — never code — so new looks ship without redeploying the booth. The brand itself (name, logo, colors, copy, domain) is config too: the same codebase ships as a single-brand install for a client or grows into a multi-brand SaaS ([ADR-012](docs/DECISIONS.md)).
 
 Three deployable apps, one TypeScript monorepo:
 
@@ -69,4 +77,4 @@ flowchart LR
 
 ## Reference Project
 
-`C:\Personal\Toku\boothlev` was reviewed as **UX reference only** (template/editor concepts). PhotoMob's flow, theme, and architecture are intentionally different — boothlev is a client-side webcam toy with no DSLR, booking, printing, or delivery. Its observed weaknesses (god-file editor, hardcoded template catalog, localStorage image blobs, docs drifting from code) are explicitly designed against here — see [docs/DECISIONS.md](docs/DECISIONS.md).
+The `boothlev` project was reviewed as **UX reference only** (template/editor concepts). PhotoMob's flow, theme, and architecture are intentionally different — boothlev is a client-side webcam toy with no DSLR, booking, printing, or delivery. Its observed weaknesses (god-file editor, hardcoded template catalog, localStorage image blobs, docs drifting from code) are explicitly designed against here — see [docs/DECISIONS.md](docs/DECISIONS.md).
