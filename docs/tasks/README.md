@@ -46,6 +46,13 @@ M1  API-010..015  →  BOOTH-010..020  +  WEB-010..011     "stranger prints a st
 M2  API-020..028  →  WEB-020..025    +  BOOTH-021..022   "receipt code starts the booth"
 M3  API-030..036  →  WEB-030..032    +  BOOTH-023        "day-6 link extended in 10s"
 M4  API-040..042  +  BOOTH-024..027  +  WEB-040..041     "unplug the network; nothing lost"
+
+—— post-M4 gate: M5 opens only after M4 is green (API-042 + BOOTH-027 chaos suites) ——
+
+M5  API-050..053  →  WEB-050..053                        "customer books & pays from their phone"
+M6  API-060..062  →  BOOTH-030..031  +  WEB-060          "boomerang in the gallery; media on S3"
+M7  API-070..071  →  WEB-070..071                        "one login runs five stores"
+M8  WEB-080..081  (no API/booth work)                    "a template designed without touching JSON"
 ```
 
 Key cross-repo dependencies (blocking, both merged before dependent starts):
@@ -60,6 +67,11 @@ Key cross-repo dependencies (blocking, both merged before dependent starts):
 | BOOTH-021 (code entry vs bookings) | API-024..025 |
 | WEB-023 (receipt print) | API-023 (bookings/payments) |
 | BOOTH-023 (reprint pickup) | API-034 (print job queue) |
+| WEB-050 (self-booking flow) | API-050 (public booking surface) |
+| WEB-051 (checkout) | API-051..052 (gateway + webhooks) |
+| WEB-060 (animated tile) | API-062, BOOTH-031 (asset producer) |
+| BOOTH-031 (animated assembly) | API-062 (Animated media kind) |
+| WEB-070 (store switcher) | API-070 (store CRUD) |
 
 ## Shared conventions
 

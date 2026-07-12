@@ -130,7 +130,11 @@ Each milestone ends with something that **works end to end** and feels good to d
 | **M2 — Store operations** | Staff/admin auth, bookings, packages, payment recording, session codes, code-gated booth | *Staff sells a session; the receipt code starts the booth.* |
 | **M3 — Delivery & after-sales** | Expiring links + PIN, retention purge job, find/resend/extend/reprint, dashboard | *A customer comes back day 6: staff extends their link in 10 seconds.* |
 | **M4 — Hardening** | Offline queue polish, device heartbeat + health alerts, kiosk lockdown, crash recovery, backups | *Unplug the network mid-session; nothing is lost.* |
-| **Later** | Online booking + payment gateway (Midtrans/Xendit), GIF/boomerang, multi-store UI, visual template designer, AI extras | — |
+| **M5 — Online booking** | Public self-booking + payment gateway (Midtrans/Xendit), webhooks, status page carrying the session code | *A customer books and pays from their phone; the code on their status page starts the booth.* |
+| **M6 — Media at scale** | S3-compatible storage + migration tool, GIF/boomerang capture → gallery | *The gallery plays a boomerang; media lives in object storage.* |
+| **M7 — Multi-store** | Store switcher, cross-store dashboard, store management | *One login runs five stores.* |
+| **M8 — Template designer** | Visual designer emitting the same template config (no API/booth changes) | *A new template designed by dragging boxes — the JSON tab never opened.* |
+| **Later** | AI extras, SaaS machinery (ADR-012), EDSDK adapter (needs its own ADR), ESC/POS receipts, notification channels (WA/email) | — |
 
 ---
 

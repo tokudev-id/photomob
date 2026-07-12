@@ -535,4 +535,173 @@ Milestone M4 · Size M · Level mid · Depends: API-004, API-014, BOOTH-004 merg
 
 ---
 
-*Anything not listed (online booking, payment gateway, S3, multi-store UI, GIF) is post-M4 by ADR-005/§12 — do not start it.*
+## Milestone M5 — online booking & payment gateway
+
+> Gate: M5 starts only after M4 is green (API-042 chaos suite, 3 consecutive nightly runs). ADR-005's seam opens here: a **new public surface + webhook handler**; booth, sessions, delivery stay untouched (§12).
+
+### API-050 · Public booking surface: availability + pending bookings
+Milestone M5 · Size L · Level mid · Depends: API-023, API-024, API-028
+
+**Context**: ADR-005 deferred exactly this. Online bookings converge into the *same* Booking aggregate staff use (API-023) — a second booking model would fork every downstream rule.
+
+**Spec**
+- Store gains `OnlineBookingConfig` (jsonb, zod → JSON Schema pattern like brand config, API-027): `enabled`, per-weekday open hours, `slotGranularityMin` (default 30), `capacityPerSlot` (default 1 — simultaneous sessions the store absorbs), `horizonDays` (default 7). Admin endpoint to edit, 422 with pointers on violations.
+- Public, anonymous, rate-limited (API-028 limiter, new policy 20/min/IP):
+  - `GET /api/public/booking/packages` → active packages, display fields only (name, priceIdr, duration, prints) — snapshot-test that no internal fields leak.
+  - `GET /api/public/booking/availability?date=` → slots within the horizon: `{ startsAt, available }`. Available = count of bookings overlapping the slot (status ∈ {PendingPayment, Confirmed, CheckedIn}, overlap window = package session duration) < capacity.
+  - `POST /api/public/booking` `{ packageId, slotStartsAt, name, phone, partySize, draftKey }` → Booking status **PendingPayment**, `PaymentDeadline = now + Booking:PaymentTtlMin` (default 15), price snapshotted (API-015 discipline extended to bookings); returns `{ statusToken }` — 128-bit random capability, **hashed at rest** (refresh-token pattern, API-020). `draftKey` = idempotency key (API-014 dedupe pattern).
+- Booking gains: `Source (Staff|Online)`, status `PendingPayment`, `PaymentDeadline?`, `StatusTokenHash?`. Staff walk-ins never enter PendingPayment — their flow is byte-for-byte unchanged (regression tests prove it).
+- Capacity check transactional: advisory lock on `(storeId, slotStartsAt)` around check+insert — two customers racing the last slot → one wins, the other gets 409 `slot_taken` (machine-readable reason, WEB-050 switches on it — same contract style as API-025).
+
+**AC**
+- [ ] Concurrent creates on the last slot → exactly one PendingPayment, the other 409 `slot_taken` (parallel integration test).
+- [ ] `enabled=false` store → all public booking endpoints 404.
+- [ ] A PendingPayment booking holds its slot (availability reflects it until deadline).
+
+**Tests**: `Availability_excludes_full_slots`, `Pending_booking_holds_slot`, `Concurrent_last_slot_one_winner`, `Disabled_store_404`, `DraftKey_replay_returns_same_booking`, `Phone_normalized_same_as_staff_path`, `Public_package_dto_leaks_nothing` (snapshot), `Staff_walkin_flow_unchanged`.
+
+**Edge cases**: slot in the past → 422; partySize bounds from config; status token unknown → generic 404 (enumeration guard); tokens never logged (extend the shared log-sink fixture, API-036). Slot math in UTC; store hours interpreted in store tz — the one local-time spot, same rule as API-035.
+
+**Out of scope**: payment (API-051..052), notification channels (WA/email — unscheduled, see footer), any staff-UI change (WEB-053 handles display).
+
+---
+
+### API-051 · `IPaymentGateway` + checkout creation
+Milestone M5 · Size L · Level mid · Depends: API-050
+
+**Context**: §12 — "payment gains gateway fields". The gateway collects the **customer's session payment for online bookings** — nothing else (SaaS billing is ADR-012-deferred and out of scope). Provider confirmed by Toku 2026-07-12: **Midtrans first** (Snap); Xendit stays a possible second adapter behind the same interface.
+
+**Spec**
+- `IPaymentGateway` (Application): `CreateCheckoutAsync(booking) → { provider, mode: Redirect|Popup, url?, token?, scriptUrl?, gatewayOrderId, expiresAt }`; `ParseAndVerifyNotificationAsync(request) → GatewayEvent { gatewayOrderId, eventId, status: Settled|Pending|Expired|Cancelled|Refunded, grossAmountIdr, raw }`; `QueryOrderStatusAsync(gatewayOrderId)`; `CancelOrderAsync(gatewayOrderId)`. One Infrastructure adapter per provider; config `Payments:Provider` + keys from env — startup fails if enabled without keys (API-007 pattern).
+- `Payment` gains `Source (Staff|Gateway)`, `Provider?`, `GatewayOrderId?`, `GatewayEventId?`, `GatewayStatus?`. Gateway payments are **never** creatable via the staff add-payment endpoint (domain rule + test) — ADR-005's "payments are records" stays true for staff; the gateway path is the only writer of gateway rows.
+- `POST /api/public/booking/{statusToken}/checkout` → creates/returns the gateway transaction; **idempotent while the deadline is live** (re-request returns the same open checkout, never a duplicate order); after deadline → 410. `gatewayOrderId` = bookingId + attempt suffix — never reuse an order id after a terminal gateway state (provider constraint, document it).
+- Amount = the booking's snapshotted price, integer IDR only — adapter hard-fails on any other currency.
+
+**AC**: checkout payload is gateway-agnostic (WEB-051 renders it without knowing the provider — no provider names in the OpenAPI contract beyond the enum); sandbox roundtrip documented in the repo README (manual checklist).
+
+**Tests**: `Checkout_idempotent_while_pending`, `Checkout_after_deadline_410`, `Staff_endpoint_rejects_gateway_source`, `Startup_fails_when_enabled_without_keys`, adapter units against recorded sandbox fixtures: `Signature_computed_correctly`, `Amount_maps_integer_idr`, `Non_idr_currency_throws`.
+
+**Edge cases**: package price edited after booking created → checkout uses the snapshot (test it); checkout requested for an already-Confirmed booking → 409 `already_paid`.
+
+---
+
+### API-052 · Gateway webhook handler
+Milestone M5 · Size L · Level mid · Depends: API-051
+
+**Context**: The webhook is the **only** trusted path to "paid" — the customer's redirect back to the SPA is UX, never truth.
+
+**Spec**
+- `POST /api/webhooks/payments/{provider}` — anonymous, exempt from IP rate limits (gateways burst; the signature is the gate): verify signature per adapter → forged = 401, nothing written; dedupe on `GatewayEventId` unique index → replays return 200 (gateways retry until they see 2xx).
+- **Verify-then-trust**: on Settled, re-query the gateway's status API (`QueryOrderStatusAsync`) — never trust the callback body alone (spoofed-notification defense). Amount mismatch vs the booking's snapshot → do NOT confirm: write an alert + audit row (API-026), hold for manual resolution.
+- Settled → in **one transaction**: gateway Payment row + booking `PendingPayment→Confirmed` (reuses API-023's Σ payments ≥ price rule) + session code issued (API-024 handler; activation window from the scheduled slot). Expire/Cancel events → booking `Expired` (slot frees itself via the availability math).
+- `GET /api/public/booking/{statusToken}` → status, and once Confirmed: session code + slot + store display info. This is WEB-052's poll target — code appears **only** on Confirmed.
+- Out-of-order events (Expire arriving after Settle): terminal-precedence — Settled wins, the late event is logged and ignored.
+
+**AC**
+- [ ] Sandbox end-to-end: create → checkout → pay → webhook → status shows Confirmed + code (manual checklist recorded in PR).
+- [ ] Same eventId replayed ×5 → exactly one Payment row.
+- [ ] Forged signature → 401 and zero writes.
+
+**Tests**: `Settlement_confirms_and_issues_code_atomically`, `Replay_idempotent_by_event_id`, `Forged_signature_rejected_writes_nothing`, `Amount_mismatch_holds_with_alert_never_confirms`, `Late_expire_after_settle_ignored`, `Status_exposes_code_only_when_confirmed`, `Unknown_order_returns_200_with_warn_log`.
+
+**Edge cases**: webhook for an unknown order → 200 + warn log (a 4xx makes the gateway retry forever and drowns ops); webhook arriving before the checkout HTTP response returned → safe because the order row commits before the payload is returned (assert the ordering); notification body stored raw on the Payment row for forensics.
+
+---
+
+### API-053 · Pending-expiry sweep + lifecycle glue
+Milestone M5 · Size M · Level junior · Depends: API-050, API-052, API-032
+
+**Spec**
+- Frequent hosted-service sweep (every minute, joins the API-032 job family): `PendingPayment` past `PaymentDeadline` → `Expired` + event; gateway order cancelled best-effort (`CancelOrderAsync` — failure logged, never fatal; the gateway's own expiry is the backstop).
+- Late settlement AFTER local expiry (customer paid at 15:01): booking stays Expired, the payment is still recorded + `requires_attention` alert/audit — staff resolves; refund is outside the system in v1 (document).
+- Dashboard (API-035) gains online counters: pending now, and today's revenue split gateway vs staff-recorded.
+- New endpoints/enums → client regenerated + committed (API-008 drift gate).
+
+**Tests**: `Sweep_expires_past_deadline_only`, `Expired_slot_reappears_in_availability`, `Sweep_idempotent_on_rerun`, `Cancel_failure_logged_not_thrown`, `Late_settlement_records_payment_flags_attention_keeps_expired`, `Dashboard_splits_gateway_vs_staff_revenue`.
+
+**Edge cases**: settle webhook and sweep racing the same booking → row lock; first committer wins, the other observes the new state and no-ops (test both interleavings).
+
+---
+
+## Milestone M6 — media at scale + animated assets
+
+### API-060 · S3-compatible `IStorageProvider`
+Milestone M6 · Size L · Level mid · Depends: API-004, API-032
+
+**Context**: §13's known risk — "single-VPS media storage: disk fills". The seam is already real in the repo: `Application/Abstractions/IStorageProvider.cs` (`SaveAsync/OpenReadAsync/DeleteAsync/ExistsAsync`) with `LocalDiskStorage` behind DI, and every stored path is already a relative object key (`{storeId}/{sessionId}/{kind}-{checksum}.ext`, `templates/{id}/v{n}/…`) — the adapter is a registration swap, zero call-site changes.
+
+**Spec**
+- `S3Storage : IStorageProvider` (AWSSDK.S3; path-style addressing option for MinIO/R2 compat); config `Storage:Provider = local|s3` + endpoint/bucket/region/keys; startup validation: bucket reachable + writable (API-007 pattern).
+- Object keys mirror the existing relative paths 1:1 — no scheme translation anywhere.
+- Media streaming (API-006's signed proxy) is **unchanged**: it reads through `IStorageProvider`, and proxying preserves noindex, rate limits, and HMAC signing. S3-presigned direct URLs are an explicit non-goal now (note as a later bandwidth optimization).
+- compose gains a `minio` service for dev; integration tests parameterized so the whole API-004 storage matrix runs against **both** providers (Testcontainers MinIO).
+- Purge job (API-032) verified against S3: delete semantics, already-deleted-object tolerance.
+
+**AC**: walking-skeleton E2E green with `Storage:Provider=s3` against MinIO; API-004's full test matrix passes on both providers via one parameterized fixture.
+
+**Tests**: provider-parameterized fixture over the existing storage tests, plus `Startup_fails_on_unreachable_bucket`, `Purge_tolerates_missing_object`, `Stream_from_s3_correct_content_type`, `Sdk_errors_map_to_same_storage_error_type` (503 semantics identical to local disk-full).
+
+**Edge cases**: 25 MB upload roundtrip (SDK multipart threshold territory — assert it); slow first-byte from cold object storage must not trip the proxy's timeouts (measure, set explicit HttpClient timeout).
+
+---
+
+### API-061 · Local→S3 migration tool + cutover runbook
+Milestone M6 · Size M · Level mid · Depends: API-060
+
+**Spec**
+- CLI under `tools/` (invoked via a `scripts/` wrapper): copies every `MediaAsset` file local→bucket, verifies SHA-256 against the DB row after upload, `--dry-run`, resumable (skips objects already present with matching checksum), final report (migrated / skipped / failed / bytes).
+- `docs/runbooks/s3-cutover.md`: migrate while running on local → delta pass for writes that landed during the first pass → flip `Storage:Provider` → verify (walking-skeleton E2E + spot-check gallery) → retire the volume. Purge job paused during migration (runbook step, with the re-enable reminder).
+
+**Tests**: `Migrates_and_verifies_checksum`, `Resume_skips_existing_matching`, `Corrupt_upload_detected_and_retried`, `Dry_run_writes_nothing`, `Report_counts_accurate`.
+
+**Edge cases**: DB row whose file is missing on disk (drift — API-006's known edge) → report + skip, never abort the run; checksum mismatch after upload → delete the bad object, retry once, then report as failed.
+
+---
+
+### API-062 · Animated media kind (GIF/boomerang contract)
+Milestone M6 · Size M · Level mid · Depends: API-004; cross-repo: BOOTH-030..031 produce, WEB-060 renders
+
+**Context**: §12 — "new MEDIA_ASSET.kind + composer step + gallery tile". The API side is deliberately small: accept, store, serve — the booth encodes (BOOTH-031), the web renders (WEB-060).
+
+**Spec**
+- `MediaAsset.Kind` gains `Animated`; upload accepts content types image/gif, image/webp, video/mp4 **for that kind only** (magic-byte sniffed exactly like API-004 — stills kinds reject video and vice versa); size cap `Media:MaxAnimatedBytes` (default 50 MB).
+- Gallery `MediaRef` gains `contentType` — WEB-060 switches tile rendering on it (that field is the contract; don't make the web sniff).
+- Range requests: keep API-006's behavior (ignore Range, 200 full body) — mp4 playback works without ranges at these sizes; revisit only on real buffering complaints (note it).
+- Session completion rule unchanged: `complete` still requires ≥1 **Composed** still (API-005) — animated is additive, never a substitute for the printable output (booth enforces the same, BOOTH-031).
+- Template-kit's `animation` schema bump lands in `contracts/template-config.schema.json` (API-011 sync pattern, version note updated). OpenAPI + TS client regenerated (API-008 gate).
+
+**Tests**: `Animated_accepts_gif_webp_mp4_only`, `Still_kind_rejects_video_415`, `Oversize_animated_413`, `Gallery_ref_carries_content_type`, `Magic_sniff_rejects_renamed_avi`, `Complete_still_requires_composed_still` (regression).
+
+**Edge cases**: 50 MB cap vs API-004's 25 MB general cap — the multipart limit must be per-kind, not global (test both bounds); purge (API-032) and migration (API-061) treat Animated like any other kind (no special-casing to forget).
+
+---
+
+## Milestone M7 — multi-store operations
+
+### API-070 · Store management CRUD + user-store assignment
+Milestone M7 · Size M · Level mid · Depends: API-020, API-021
+
+**Context**: §12 — the data model has been multi-store since day one (`StoreId` on every row; Tenant→Store already in `Domain/Tenants`); what's missing is the ability to create/manage the second store at runtime instead of via seed.
+
+**Spec**
+- Admin endpoints: create / edit / archive store. Archive hides the store from pickers and rejects new bookings/sessions; history stays readable. Keep `User.StoreId?` semantics exactly as API-020 defined them (admin = tenant-wide/null, staff = exactly one store) — "assign user" = set StoreId, audited (API-026). No multi-store-per-user role matrix; that's SaaS-console scope (unscheduled).
+- Isolation proof extended: API-021's cross-*tenant* test matrix gains a second-store-same-tenant dimension — every store-scoped resource (sessions, templates, packages, bookings, devices) creatable under store B and invisible to store-A staff.
+
+**Tests**: `Second_store_resources_isolated_from_store_a_staff` (parameterized), `Archive_hides_from_pickers_keeps_history_readable`, `Archived_store_rejects_new_bookings_and_sessions`, `Staff_reassignment_audited_and_effective_next_request`, `Last_active_store_cannot_be_archived`.
+
+**Edge cases**: archiving a store with sessions active *today* → 409 with an actionable message (finish the day first); store create seeds nothing — packages/templates/devices are set up per store by admin (the checklist goes in the ops docs, not code).
+
+---
+
+### API-071 · Cross-store aggregates
+Milestone M7 · Size M · Level junior · Depends: API-035, API-070
+
+**Spec**: `GET /api/dashboard/overview?tz=` (admin-only, staff 403): per-store rows (sessions by status today, revenue today, completion rate, devices online/total) + tenant totals. One grouped query per metric — never a per-store fan-out (assert query count with an EF interceptor); `AsNoTracking`; perf guard ≤ 500 ms on a 5-store × 100k-session seed (Category=Perf, like API-035). The single-store API-035 endpoint is untouched — staff keep it.
+
+**Tests**: `Rows_per_active_store_plus_totals`, `Query_count_bounded`, `Staff_403`, `Archived_excluded_by_default_included_on_optin`, `Perf_guard_overview`.
+
+**Edge cases**: `includeArchived=true` opt-in flags archived rows; tenant with zero stores → empty rows + zero totals, not 404; tz handling identical to API-035 (client sends tz, server computes the UTC range).
+
+---
+
+*Milestone M8 (visual template designer) needs **no API work** — the designer (WEB-080..081) emits ordinary template config through API-010..012; that's ADR-011's payoff. Not in any milestone: SaaS machinery (self-signup, billing, plan limits, domain-based tenant resolution — ADR-012), ESC/POS receipt path (ADR-013), gallery-link-on-receipt evolution (§12), notification channels (WA/email for bookings and device alerts), AI features. M5 starts only after M4 is green — do not start post-M4 work early.*

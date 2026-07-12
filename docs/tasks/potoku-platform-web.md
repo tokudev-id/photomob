@@ -232,4 +232,145 @@ Milestone M4 · Size L · Level mid · Depends: all customer-facing screens
 
 ---
 
-*Not in any milestone: online self-booking UI, payment gateway checkout, multi-store switcher UI (data model is ready; UI is post-M4 per §12), visual template designer.*
+## Milestone M5 — online booking & checkout
+
+> M5 starts only after M4 is green. Public pages here get the gallery bar: brand-hydrated, mobile-first, mid-range Android over 3G.
+
+### WEB-050 · Public self-booking flow
+Milestone M5 · Size L · Level mid · Depends: API-050, WEB-001, WEB-025 (brand hydration)
+
+**Context**: PRD §5 "Later" promoted to M5; ADR-005's deferred scope opens. This is a revenue surface — same polish budget as WEB-002.
+
+**Spec**
+- Route `/book` (public layout, brand-hydrated). Wizard steps, each its own URL (`/book/package`, `/book/slot`, `/book/details`, `/book/review`) so back button works; draft state in `sessionStorage` keyed by a client-generated `draftKey` (uuid).
+- **Package**: cards (name, price IDR-formatted, session duration, prints included) from the public packages endpoint. **Slot**: 7-day date strip + slot grid from the availability endpoint; unavailable slots visibly disabled. **Details**: name + phone (08xx → +628xx normalization on blur — parity with WEB-022). **Review** → `POST` create pending booking (with `draftKey` as idempotency key) → hand off to WEB-051 checkout.
+- Payment deadline from the API is visible from review onward ("complete payment within 15:00", live countdown).
+
+**AC**
+- [ ] Full flow phone-usable ≤ 90 s to checkout handoff (manual video in PR).
+- [ ] Slot taken between render and submit → API 409 `slot_taken` → returned to slot step with friendly copy + refreshed grid (the race path is tested, not hoped away).
+- [ ] Loading / empty ("no slots today") / error states designed on every step.
+
+**Tests**: `Slot_grid_renders_availability_states`, `Conflict_409_returns_to_slot_step_and_refreshes`, `Phone_normalization_parity_with_staff_flow`, `Back_button_preserves_draft`, `Double_submit_one_booking_via_draftKey`, `Deadline_countdown_renders_api_value`.
+
+**Edge cases**: package archived mid-flow → 422 mapped to package re-pick; store with online booking disabled → `/book` renders a "call us" page with store contact from the brand manifest (API returns 404 — don't error-splash); scheduled slot crossing midnight store-time — display in store tz, submit UTC (WEB-022 discipline).
+
+---
+
+### WEB-051 · Gateway checkout
+Milestone M5 · Size L · Level mid · Depends: API-051, API-052, WEB-050
+
+**Context**: The gateway (Midtrans/Xendit) is the API's secret — the SPA renders whatever checkout payload it's handed and never hardcodes a provider.
+
+**Spec**
+- Consume API-051's checkout payload: `{ mode: "redirect"|"popup", url?, token?, scriptUrl? }` — popup mode loads the gateway script from `scriptUrl` (Midtrans Snap shape), redirect mode navigates. No provider names in web code.
+- Return path (`/book/status/:token?from=gateway` or popup callback) → **verifying** state: poll the public booking status until Confirmed (webhook processed), 5 s interval, max 2 min → then an honesty state "payment received, still confirming — this page will update" with manual refresh. **Never fake success.**
+- Gateway failure/expiry → retry payment (new checkout call, same booking while deadline live) or restart flow when the booking expired.
+
+**Tests** (MSW): `Popup_mode_loads_script_and_invokes_with_token`, `Redirect_mode_navigates`, `Verifying_polls_until_confirmed`, `Poll_timeout_shows_honesty_state_not_success`, `Retry_payment_reuses_booking_while_deadline_live`, `Expired_booking_offers_restart`.
+
+**Edge cases**: popup blocked → inline "continue to payment" link fallback; user pays then kills the tab before returning → WEB-052's status page is the recovery path (copy on it says so); paying an already-settled booking → API rejects → map to "already paid" → status page.
+
+---
+
+### WEB-052 · Booking status + code delivery page
+Milestone M5 · Size M · Level junior · Depends: API-052, API-053, WEB-051
+
+**Context**: Online bookings have no staff receipt (ADR-013) — this page IS the customer's receipt and their session code carrier.
+
+**Spec**
+- `/book/status/:token` (public, capability token from booking create — bookmarkable). States: **pending-payment** (deadline countdown + pay button), **confirmed** (**session code huge** — same visual weight as WEB-022's code screen; store name/address, scheduled time, "enter this code at the booth"), **expired** (re-book CTA), **cancelled**.
+- Confirmed extras: copy-code button, add-to-calendar (client-generated `.ics`), `wa.me` share of the status link (send-to-self — the "my receipt" move).
+- Poll while pending-payment (10 s, visibility-aware like WEB-024); stop on terminal status.
+
+**Tests**: `Each_status_renders_designed_state`, `Code_visible_only_when_confirmed`, `Ics_carries_slot_time_in_store_tz`, `Poll_stops_on_terminal_status`, `Refetch_on_focus_shows_reissued_code`.
+
+**Edge cases**: unknown/malformed token → generic not-found (never confirm a booking exists — enumeration guard); staff re-issued the code after confirmation (API-024) → page shows current server truth (refetch on focus, test it).
+
+---
+
+### WEB-053 · Online bookings in staff views
+Milestone M5 · Size S · Level junior · Depends: WEB-022, WEB-024, API-052
+
+**Spec**: additive to existing screens, no new routes: booking list/detail/day-board gain a source chip (`online` / `walk-in`); gateway payment rows render read-only (provider, reference, settled time — no edit/delete; staff-recorded payments unchanged); pending-payment online bookings visible with their deadline.
+
+**Tests**: `Source_chip_renders_both_kinds`, `Gateway_payment_rows_read_only`, `Pending_online_booking_shows_deadline`.
+
+**Edge cases**: staff adds a cash payment to a gateway-pending booking (customer walked in and paid at the counter instead) → allowed; API resolves state — surface its response faithfully, no client-side second-guessing.
+
+---
+
+## Milestone M6 — animated gallery
+
+### WEB-060 · Gallery animated tile
+Milestone M6 · Size M · Level junior · Depends: API-062, WEB-002; cross-repo: BOOTH-031 produces the assets
+
+**Spec**: gallery renders `kind=animated` assets as a first-class tile (after composed, before raws): switch on the `contentType` the media ref carries — `<video muted autoplay loop playsinline>` for mp4, `<img>` for gif/webp; tap → fullscreen loop in the viewer; download preserves the original file.
+
+**Tests**: `Mp4_renders_video_muted_autoplay_playsinline`, `Gif_renders_img`, `Download_uses_signed_url_untouched`, `Gallery_without_animated_unchanged` (regression).
+
+**Edge cases**: iOS low-power mode blocks autoplay → poster frame + play affordance (design the paused state, test it); unknown future content type → download-only tile, never a broken player.
+
+---
+
+## Milestone M7 — multi-store UI
+
+### WEB-070 · Store context switcher
+Milestone M7 · Size M · Level mid · Depends: API-070, WEB-020
+
+**Context**: §12 — data model was multi-store from day one (every row hangs off StoreId); this makes it visible. UI-only scoping is UX; the server enforces (API-021), same stance as WEB-020's role gate.
+
+**Spec**: admin-only header switcher (staff never see it — they're store-locked server-side): store list + "All stores" offered only where supported (dashboard); selection persisted per-user (`localStorage`) and injected by the API client from context; every store-scoped screen (bookings, templates, packages, devices, after-sales) refetches on switch.
+
+**Tests**: `Switch_refetches_active_screens`, `Staff_never_sees_switcher`, `Persisted_selection_restored_on_boot`, `All_stores_offered_only_on_dashboard`.
+
+**Edge cases**: deep link to store B's resource while store A is selected → auto-switch with a toast (the resource wins over the sticky selection); selected store archived since last visit → fall back to first active store + toast; single-store tenant → switcher hidden entirely (the pre-M7 experience is the default, not a regression).
+
+---
+
+### WEB-071 · Cross-store dashboard + store management
+Milestone M7 · Size L · Level mid · Depends: API-070, API-071, WEB-032, WEB-070
+
+**Spec**
+- "All stores" dashboard: per-store comparison table (sessions today, revenue, completion vs the 95% target with threshold colors, devices online) from API-071's aggregate — one call, no per-store fan-out; single-store selection keeps the existing WEB-032 tiles.
+- Store management (admin): list / create / edit / archive store (confirm dialog quotes API-070's rules), assign users to stores (role visible), devices-per-store overview.
+
+**Tests**: `Aggregate_table_renders_per_store_rows_and_totals`, `Store_create_form_validation`, `Archive_confirm_flow_surfaces_409_reasons`, `User_assignment_roundtrip`, `Single_store_selection_keeps_existing_tiles`.
+
+**Edge cases**: archived store's history remains in aggregates (row flagged); 1–10 stores — table stays readable (sticky header, sortable columns); revenue footnote chip for overpayments carries over from WEB-032.
+
+---
+
+## Milestone M8 — visual template designer
+
+### WEB-080 · Designer canvas (slots on frame)
+Milestone M8 · Size L · Level mid · Depends: WEB-010, WEB-011
+
+**Context**: ADR-011 deferred the designer as polish; the JSON editor remains the escape hatch. The designer is a **config generator** — its output is ordinary template config through the existing API-010..012 endpoints; API and booth change zero (the ADR-011 payoff).
+
+**Spec**
+- New "Design" tab in WEB-010's editor, two-way synced with the JSON tab (designer edits update the JSON; valid JSON edits update the canvas; invalid JSON disables the canvas with a notice).
+- Canvas preset picker (category → canvas size), frame PNG rendered as the working background, slot rects drawn / dragged / resized with handles: snap to 10 px grid + edge/center guides; slot list panel with numeric x/y/w/h inputs for precision and slot order (order = selection order on the booth); `fit` per slot. Rotation stays hidden until the rasterizers support ≠0 (WEB-011/BOOTH-002 both throw — don't offer what can't render).
+- Out-of-bounds slots can't be drawn (what API-011 would 422 is blocked at draw time).
+
+**Tests**: `Drag_updates_config_json`, `Numeric_inputs_and_drag_stay_in_sync`, `Snap_to_grid_and_guides`, `Out_of_bounds_blocked_at_draw_time`, `Json_edit_reflects_on_canvas`, `Invalid_json_disables_canvas_with_notice`.
+
+**Edge cases**: overlapping slots — allowed (some designs overlap) but warn chip; huge frame PNG → client-side reject above API-012's 15 MB before upload; touch devices — handles get ≥44 px hit areas (admins do use tablets).
+
+---
+
+### WEB-081 · Designer: layers, variants, guided create
+Milestone M8 · Size M · Level mid · Depends: WEB-080
+
+**Spec**
+- Layers panel mirroring the composition contract visually (background → photos → frame — same order BOOTH-002 rasterizes); optional background layer upload.
+- Variant editor: list (id, name, frame PNG per variant), preview switcher reusing WEB-010's; dimension mismatch vs canvas blocked with message.
+- "New template" guided path: category → canvas → upload frame → **auto-suggest slots** (alpha-region scan of the frame PNG finds transparent windows — best-effort bounding boxes, fully editable after) → name → save draft. Success metric: a template author never opens the JSON tab.
+
+**Tests**: `Layers_panel_order_matches_composition_contract`, `Variant_add_remove_roundtrip`, `Alpha_scan_finds_rect_windows` (fixture frame with 4 windows), `Suggested_slots_editable`, `Variant_dimension_mismatch_blocked`.
+
+**Edge cases**: non-rectangular transparent windows → bounding boxes suggested + UI copy stating the limitation; frame with no transparent regions (opaque) → zero suggestions + the BOOTH-002 no-alpha warning surfaced client-side.
+
+---
+
+*Not in any milestone: AI features (background removal, beauty filters), SaaS tenant console (self-signup, billing, plan limits — ADR-012 defers these until a second client exists).*

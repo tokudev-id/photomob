@@ -301,16 +301,18 @@ Cross-cutting: TLS everywhere (Caddy auto-TLS), Prisma parameterization, class-v
 
 ## 12. Evolution Path (known, not built)
 
+> Update 2026-07-12: the marked rows are now scheduled as milestones M5–M7, and the visual template designer (ADR-011's deferral) as M8 (WEB-080..081) — see [tasks/README.md](tasks/README.md). Unmarked rows remain unscheduled.
+
 | Future need | What changes | What doesn't |
 |---|---|---|
-| Online booking + gateway | New `bookings-public` surface + Midtrans/Xendit webhook handler; payment gains gateway fields | Booth, sessions, delivery untouched |
-| Multi-store UI | Admin store-switcher + per-store reporting | Data model (storeId is everywhere already) |
-| S3/CDN media | New `IStorageProvider` adapter + signed URL impl | `media` module logic, gallery |
+| Online booking + gateway — **M5** (API-050..053, WEB-050..053) | New `bookings-public` surface + Midtrans/Xendit webhook handler; payment gains gateway fields | Booth, sessions, delivery untouched |
+| Multi-store UI — **M7** (API-070..071, WEB-070..071) | Admin store-switcher + per-store reporting | Data model (storeId is everywhere already) |
+| S3/CDN media — **M6** (API-060..061) | New `IStorageProvider` adapter + signed URL impl | `media` module logic, gallery |
 | Canon EDSDK | New `ICamera` adapter (native bindings) | Entire booth flow |
 | SaaS mode (multi-brand, one instance) | Tenant resolution by domain, tenant self-signup, billing, plan limits | Data model (tenant is already first-class), auth scoping, every app |
 | ESC/POS receipts | `IReceiptPrinter` + TCP:9100 adapter (LAN thermal printer) | Receipt content, booking flow |
 | Gallery link on the purchase receipt | Pre-issue delivery link at session *creation* with TTL anchored to completion (today it's issued at activation, ADR-010) | Gallery, delivery module shape |
-| GIF/boomerang | New `MEDIA_ASSET.kind` + composer step + gallery tile | Session flow shape |
+| GIF/boomerang — **M6** (API-062, BOOTH-030..031, WEB-060) | New `MEDIA_ASSET.kind` + composer step + gallery tile | Session flow shape |
 | If `sessions` grows >4 controllers / mixed consumers | Split `sessions-core` + role modules per Adaptive Domain Separation Level 3–4 | Its public service interface |
 
 ---

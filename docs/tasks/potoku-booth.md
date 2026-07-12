@@ -375,4 +375,46 @@ Milestone M4 · Size M · Level mid · Depends: BOOTH-004, BOOTH-013, BOOTH-020,
 
 ---
 
-*Not in any milestone: GIF/boomerang, EDSDK adapter (only if BOOTH-010's spike verdict demands it — that's a new ADR first), visual template designer.*
+## Milestone M6 — GIF/boomerang
+
+> Booth has no M5 tasks (online booking is API+web only — the booth already honors bookings via API-025). M6 starts only after M4's chaos suite (BOOTH-027) is green.
+
+### BOOTH-030 · Burst capture for animated shots
+Milestone M6 · Size L · Level mid · Depends: BOOTH-011, BOOTH-014; cross-repo: API-062 (contract)
+
+**Context**: PRD "Later" promoted to M6. §12: GIF = new media kind + composer step + gallery tile. Capture source is the **live-view stream** (DSLR still-burst via dCC is ~1 fps — too slow); frames come from the same pipe BOOTH-011 built, so this works identically on DSLR live view and webcam fallback.
+
+**Spec**
+- Template config gains `animation?: { kind: "gif"|"boomerang", frames: number, fps: number }` — template-kit zod schema bump; the regenerated `template-config.schema.json` flows to the API contracts copy (API-011 sync pattern, coordinate in PR).
+- Wizard: when the selected template declares `animation`, the capture loop adds an animated-shot step: countdown → grab `frames` consecutive live-view frames at target `fps` (drop-not-buffer policy stays) → loop preview → keep/retake.
+- Frameset persisted to spool as a directory + manifest (frame order, timings); journal appended after persist — same crash-safety bar as BOOTH-014.
+- Boomerang is an *assembly* concern (forward + reversed at encode time, BOOTH-031) — never capture twice.
+
+**AC**
+- [ ] Animated template produces a smooth ≥12 fps loop preview on the booth.
+- [ ] Still-only templates unaffected (regression: M1 capture flow untouched).
+- [ ] Webcam fallback captures animation too (frames via the BOOTH-001 broker path).
+
+**Tests**: `Animation_declared_template_enters_burst_step`, `Frame_count_and_fps_within_tolerance` (fake stream), `Retake_discards_previous_frameset`, `Journal_appended_after_frameset_persisted`, `Still_template_flow_unchanged`.
+
+**Edge cases**: live-view fps below target (slow dCC) → extend wall-clock to reach frame count, hard cap 5 s, warn log; memory bounded (frames spill to spool as they arrive, never all-in-RAM); crash mid-frameset → BOOTH-024 recovery drops the incomplete frameset, keeps stills.
+
+**Out of scope**: encoding (BOOTH-031), gallery tile (WEB-060), printing animated output (never — print is stills only).
+
+---
+
+### BOOTH-031 · Animated asset assembly + upload
+Milestone M6 · Size M · Level mid · Depends: BOOTH-030, API-062 merged
+
+**Spec**
+- Assembler in `main/composer/`: frameset → animated output. **Investigate & decide in-task** (document in PR): sharp animated WebP/GIF vs ffmpeg-static MP4. Decision criteria: file size at ~3 s / 480p, iOS Safari playback (WEB-060 renders `<video muted autoplay playsinline>` for mp4, `<img>` for gif/webp), encode time < 3 s on booth hardware. The cross-repo contract is `MediaAsset.Kind = Animated` + honest content type (API-062 accepts gif/webp/mp4) — not the container.
+- Boomerang: forward + reversed sequence, duplicate endpoint frames dropped.
+- Output enqueued on the BOOTH-004 queue (new job kind, same idempotency/checksum semantics); QR/gallery copy already says "photos on the way" — no UI change here.
+
+**Tests**: `Boomerang_mirrors_without_duplicate_endpoints`, `Encode_within_size_budget` (fixture frameset → ≤ configured MB), `Enqueue_flows_through_existing_queue_semantics`, `Assembly_failure_marks_shot_failed_not_session_crash`.
+
+**Edge cases**: encode failure (codec missing/bad frameset) → session continues stills-only, `animated_failed` event + staff alert — an animation must never block the print or the QR; force sRGB on frames (BOOTH-002 rule).
+
+---
+
+*Not in any milestone: EDSDK adapter (only if BOOTH-010's spike verdict demands it — that's a new ADR first), visual template designer (WEB-080..081 — the designer emits ordinary template config; the booth consumes it unchanged).*
