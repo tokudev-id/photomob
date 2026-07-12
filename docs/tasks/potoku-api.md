@@ -403,7 +403,7 @@ Milestone M2 · Size M · Level mid · Depends: API-023, API-003
 ### API-025 · Booth activation honors bookings + windows
 Milestone M2 · Size M · Level mid · Depends: API-024, API-013
 
-**Spec**: rework activate: lookup by `(deviceStore, code)`; checks in order (each distinct 4xx + machine-readable `reason` code for the booth UI): unknown code → 404 `code_unknown`; outside window → 409 `outside_window` (+`windowStartsAt` so the booth can say "come back at 14:45"); already used → 409 `already_used`; booking cancelled → 409 `booking_cancelled`. Success stamps `CheckedIn` on the booking.
+**Spec**: rework activate: lookup by `(deviceStore, code)`; checks in order (each distinct 4xx + machine-readable `reason` code for the booth UI): unknown code → 404 `code_unknown`; **booking cancelled → 409 `booking_cancelled` (checked first among the 409s — cancelling voids the session per API-024, so `already_used`/`outside_window` would misreport a code the customer never used)**; outside window → 409 `outside_window` (+`windowStartsAt` so the booth can say "come back at 14:45"); already used → 409 `already_used`. Success stamps `CheckedIn` on the booking.
 
 **AC**: reason codes in OpenAPI as string enum (booth switches on them — BOOTH-021 contract); client regenerated.
 
