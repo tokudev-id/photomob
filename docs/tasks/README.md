@@ -56,8 +56,8 @@ M8  WEB-080..081  (no API/booth work)                    "a template designed wi
 
 —— Box pivot (ADR-018..021): M9 needs M5's payment spine (API-051..052) merged ——
 
-M9  API-090..093  →  BOOTH-040..043                      "stranger pays by QRIS, walks away with a strip — no staff"
-M10 API-100..103  →  WEB-100..103                        "operator signs up, pairs a box, sells the same day"
+M9  API-090..093  →  BOOTH-040..044                      "stranger pays by QRIS, walks away with a strip — no staff"
+M10 WEB-104 (shell first!) → API-100..103 → WEB-100..103 "operator signs up, pairs a box, sells the same day"
 M11 API-110..111  +  BOOTH-050..051  +  WEB-110          "cable pulled — box closes politely, operator saw it"
 ```
 
@@ -82,6 +82,7 @@ Key cross-repo dependencies (blocking, both merged before dependent starts):
 | BOOTH-040 (self-service mode) | API-090 (operating mode) |
 | BOOTH-041 (pay screen) | API-092 (box purchase flow) |
 | BOOTH-042 (thermal print) | BOOTH-015 (IPrinter seam) |
+| WEB-100..103 (all M10 screens) | WEB-104 (SaaS admin shell — build in it, don't retrofit) |
 | WEB-100 (signup/onboarding) | API-100, WEB-042 (enrollment UI) |
 | WEB-101 (earnings) | API-093 (ledger), API-103 (export) |
 | WEB-102 (platform console) | API-102 (platform-admin) |

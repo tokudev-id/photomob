@@ -457,6 +457,22 @@ Milestone M9 · Size S · Level mid · Depends: BOOTH-041, API-110 contract stub
 
 **Edge cases**: recovery offer races a new customer touching attract → recovery screen wins on boot, only on boot.
 
+### BOOTH-044 · Self-service user journey, copy & idle behavior
+Milestone M9 · Size M · Level mid · Depends: BOOTH-040..043
+
+**Context**: F2's journey assumes staff within shouting distance; F7 has nobody. Every screen the customer sees in self-service mode must survive confusion, walk-aways, and "who do I ask?" alone. This task owns the *journey*, BOOTH-041/042 own the mechanics.
+
+**Spec**
+- **Attract**: price + a 3-step "how it works" strip (pay → pose → print), ID/EN toggle, sample strips. No "ask our staff" anywhere.
+- **Copy audit**: every staff-referencing string in the wizard gets a self-service variant (i18n key level, not `if (mode)` in JSX). Errors that previously said "call staff" now show the operator contact + a "get help" QR from brand config.
+- **Paid-customer abandonment**: the customer PAID — walking away must still deliver value. Idle timeout at Capture/Select/Style → auto-advance: auto-select the first `slotCount` shots (pick order), compose, print the thermal strip, and hold the QR screen for a long dwell (config, ~2 min) before returning to attract. Media always uploads; the gallery link is issued regardless (F2 rule). Session events record `auto_completed`.
+- **Timer visibility**: session timer + "your photos are safe" reassurance copy on every post-payment screen.
+- **Thank-you**: confetti, "photos are on your phone" reminder, auto-return to attract.
+
+**Tests**: `No_staff_copy_in_selfservice_snapshot` (i18n key sweep), `Idle_at_select_autopicks_composes_prints_and_shows_qr`, `Idle_at_capture_advances_with_captured_shots`, `Autocomplete_emits_auto_completed_event`, `Help_qr_renders_operator_contact`, `Staffed_mode_copy_unchanged`.
+
+**Edge cases**: idle with **zero** shots captured (paid, then vanished before first capture) → no print, gallery link still issued with raws-if-any, `RefundFlagged` is NOT raised (service was available — record `abandoned_paid` for the operator's dashboard instead); language toggle persists per session only, resets at attract.
+
 ---
 
 ## Milestone M11 — box field-hardening (booth side)

@@ -171,7 +171,7 @@ This is the **default theme of the whitelabel base** — every token below (acce
 - **Fun lives in the accents**: one saturated accent color (e.g. coral/tangerine family), pastel secondary set that echoes template variants, springy micro-animations, a confetti moment when the print starts, friendly copy ("Find your pose!" not "Step 4 of 9").
 - **Type**: a warm rounded sans (e.g. Plus Jakarta Sans) for everything; one expressive display face reserved for big booth moments.
 - **Booth-specific**: huge touch targets (≥ 64px), readable from 1.5m, minimal text per screen, always-visible session timer, ID/EN copy.
-- **Admin**: same system, quieter — density and clarity over playfulness.
+- **Admin** *(redirected 2026-07-15, WEB-104)*: the admin/SaaS workspace is a **modern, clean admin panel** — neutral slate palette, one restrained accent, sidebar navigation, dense readable tables — styled as the *Potoku product*, not the tenant's booth brand. "Clean, but fun" (pastels, confetti, display type) is customer-facing only: booth, gallery, public booking. Tenant branding appears inside admin content only where it previews customer-facing output.
 
 ---
 
