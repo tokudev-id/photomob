@@ -53,6 +53,12 @@ M5  API-050..053  →  WEB-050..053                        "customer books & pay
 M6  API-060..062  →  BOOTH-030..031  +  WEB-060          "boomerang in the gallery; media on S3"
 M7  API-070..071  →  WEB-070..071                        "one login runs five stores"
 M8  WEB-080..081  (no API/booth work)                    "a template designed without touching JSON"
+
+—— Box pivot (ADR-018..021): M9 needs M5's payment spine (API-051..052) merged ——
+
+M9  API-090..093  →  BOOTH-040..043                      "stranger pays by QRIS, walks away with a strip — no staff"
+M10 API-100..103  →  WEB-100..103                        "operator signs up, pairs a box, sells the same day"
+M11 API-110..111  +  BOOTH-050..051  +  WEB-110          "cable pulled — box closes politely, operator saw it"
 ```
 
 Key cross-repo dependencies (blocking, both merged before dependent starts):
@@ -72,6 +78,15 @@ Key cross-repo dependencies (blocking, both merged before dependent starts):
 | WEB-060 (animated tile) | API-062, BOOTH-031 (asset producer) |
 | BOOTH-031 (animated assembly) | API-062 (Animated media kind) |
 | WEB-070 (store switcher) | API-070 (store CRUD) |
+| API-091 (QRIS charge) | API-051..052 (gateway seam + webhooks) |
+| BOOTH-040 (self-service mode) | API-090 (operating mode) |
+| BOOTH-041 (pay screen) | API-092 (box purchase flow) |
+| BOOTH-042 (thermal print) | BOOTH-015 (IPrinter seam) |
+| WEB-100 (signup/onboarding) | API-100, WEB-042 (enrollment UI) |
+| WEB-101 (earnings) | API-093 (ledger), API-103 (export) |
+| WEB-102 (platform console) | API-102 (platform-admin) |
+| BOOTH-050 (box kiosk profile) | API-101 (subscription serviceState) |
+| WEB-110 (refund/incident queue) | API-110..111 |
 
 ## Shared conventions
 

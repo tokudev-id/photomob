@@ -32,6 +32,8 @@
 | **Customer** | Walk-in guest, usually a small group, phone in hand | Fun, fast, looks great, easy to get the photos on their phone |
 | **Staff** | Counter operator | Create booking fast, take payment, hand customer a session code, fix problems (reprint, resend link) |
 | **Admin/Owner** | Store owner (Toku 😄) | Revenue overview, packages/pricing, templates, media retention, device health |
+| **Box Operator** | Bought a Potoku Box, runs it at their venue/event ([ADR-018](DECISIONS.md)) | Box sells sessions by itself, earnings visible from their phone, paper roll is the only maintenance |
+| **Platform (Toku)** | Operates the SaaS + Midtrans merchant account ([ADR-019](DECISIONS.md), [ADR-021](DECISIONS.md)) | Subscriptions collected, payouts correct, fleet healthy, onboarding friction near zero |
 
 ---
 
@@ -117,6 +119,26 @@ Rules & resilience:
 - **Test buttons**: Test capture, Test print, and a full **hardware check** (capture → compose → sample print) with a pass/fail report — self-service hardware certification.
 - Config persists locally (survives restarts, works offline); export/import for provisioning the next booth; admin dashboard shows each booth's hardware via heartbeat.
 
+### F7 — Box Self-Service Session (customer, pay-to-start) — [ADR-018/019/020](DECISIONS.md)
+
+The Potoku Box flow: F2 with payment replacing the session code, on a device in `self-service` mode. Screen-by-screen (unchanged F2 screens compressed):
+
+| # | Screen | What happens |
+|---|---|---|
+| 1 | **Attract** | Looping animation, sample strips, **price on screen**, "Touch to start" |
+| 2 | **Package & pay** | Package pick (or single price) → big **dynamic QRIS** + amount + countdown (~15 min charge expiry). Box polls the API for payment status — never Midtrans directly |
+| 3 | **Paid!** | Celebratory confirmation the moment the webhook lands → session ACTIVE, timer starts. No session code — the paying box *is* the booth |
+| 4–7 | **Template → Capture → Select → Style** | Exactly F2 screens 3–7 (webcam camera) |
+| 8 | **Print** | Thermal strip: dithered mono photo stack + brand header + gallery QR/PIN ([ADR-020](DECISIONS.md)). Full-color composed strip still uploads to the gallery unchanged |
+| 9–10 | **QR / Thank you** | F2 screens 9–10. Print failure never blocks the QR screen |
+
+Rules & resilience:
+- **Money before session**: no payment → no session, ever. Webhook is the only trusted "paid" signal; box polling is read-only.
+- **Paid but box died** (crash/power mid-session): on restart the box finds the paid-unconsumed booking and offers "Continue your session"; unrecoverable → flagged for refund in the operator dashboard, customer sees an apology screen with the operator's contact.
+- **QR expired / customer walked away**: charge expires server-side, attract resumes, nothing persisted.
+- **Offline box**: self-service mode requires connectivity to sell (payment is online by nature) → "Be right back" screen + operator alert; an in-flight paid session continues on the offline queues (media uploads when back).
+- **Subscription lapsed** ([ADR-021](DECISIONS.md)): box goes "not in service" from the attract screen only — never mid-session.
+
 ---
 
 ## 5. Milestones — "Success Feeling First"
@@ -134,7 +156,10 @@ Each milestone ends with something that **works end to end** and feels good to d
 | **M6 — Media at scale** | S3-compatible storage + migration tool, GIF/boomerang capture → gallery | *The gallery plays a boomerang; media lives in object storage.* |
 | **M7 — Multi-store** | Store switcher, cross-store dashboard, store management | *One login runs five stores.* |
 | **M8 — Template designer** | Visual designer emitting the same template config (no API/booth changes) | *A new template designed by dragging boxes — the JSON tab never opened.* |
-| **Later** | AI extras, SaaS machinery (ADR-012), EDSDK adapter (needs its own ADR), ESC/POS receipts, notification channels (WA/email) | — |
+| **M9 — Box walking skeleton** | Self-service mode in the booth app (ADR-018), in-box dynamic QRIS + webhook + earnings ledger (ADR-019), thermal strip printing (ADR-020) | *A stranger pays with their phone and walks away with a printed strip — no staff anywhere.* |
+| **M10 — Sell the box (SaaS)** | Tenant self-signup, subscription plans + enforcement, operator earnings dashboard + settlement export, platform-admin fleet surface (ADR-021) | *A new operator signs up, pairs their box with an 8-char code, and sells their first session the same day.* |
+| **M11 — Box field-hardening** | Payment edge cases (paid-but-crashed recovery, refund flagging), box kiosk profile + watchdog, thermal printer certification matrix, box BOM + provisioning runbook | *Pull the box's network cable — it politely closes; plug it back — it sells again, and the operator saw the outage from their phone.* |
+| **Later** | Photo-printer upgrade tier for the Box (dye-sub, ADR-020), Android/PWA box shell (ADR-018 evolution), Midtrans recurring subscriptions + Iris auto-payout (ADR-019/021), AI extras, EDSDK adapter (needs its own ADR), notification channels (WA/email) | — |
 
 ---
 

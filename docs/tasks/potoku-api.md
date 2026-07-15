@@ -713,4 +713,126 @@ Milestone M7 · Size M · Level junior · Depends: API-035, API-070
 
 ---
 
-*Milestone M8 (visual template designer) needs **no API work** — the designer (WEB-080..081) emits ordinary template config through API-010..012; that's ADR-011's payoff. Not in any milestone: SaaS machinery (self-signup, billing, plan limits, domain-based tenant resolution — ADR-012), ESC/POS receipt path (ADR-013), gallery-link-on-receipt evolution (§12), notification channels (WA/email for bookings and device alerts), AI features. M5 starts only after M4 is green — do not start post-M4 work early.*
+*Milestone M8 (visual template designer) needs **no API work** — the designer (WEB-080..081) emits ordinary template config through API-010..012; that's ADR-011's payoff.*
+
+---
+
+## Milestone M9 — Potoku Box: pay-to-start walking skeleton
+
+> The Box pivot (ADR-018..020). Everything here reuses the M5 payment spine: same Booking aggregate, same webhook-is-truth rule, same gateway abstraction.
+
+### API-090 · Device operating mode
+Milestone M9 · Size S · Level junior · Depends: API-013, API-043
+
+**Context**: ADR-018 — one booth app, two products. Mode is business config, therefore server-owned (ADR-015).
+
+**Spec**: `Device.OperatingMode` enum `Staffed | SelfService` (default `Staffed`, migration backfills). Admin can set it on the device detail endpoint (audited, API-026 pattern). Heartbeat response carries the effective mode + the store's self-service package/pricing snapshot so the booth needs no extra round-trip. OpenAPI + both TS client snapshots regenerated.
+
+**Tests**: `Mode_defaults_staffed`, `Mode_change_audited_and_delivered_on_next_heartbeat`, `Selfservice_heartbeat_includes_pricing_snapshot`, `Staffed_heartbeat_omits_pricing_snapshot`.
+
+**Edge cases**: mode flips while a session is active → booth applies it only from the next attract screen (assert the contract documents this; enforcement is BOOTH-040).
+
+### API-091 · Dynamic QRIS charge via Midtrans Core API
+Milestone M9 · Size M · Level mid · Depends: API-051 (gateway seam + webhook infra)
+
+**Context**: ADR-019. M5's Snap checkout serves online booking; the Box needs a raw dynamic QR string to render on-screen. Same `IPaymentGateway` seam, new capability — never a second gateway abstraction.
+
+**Spec**: extend the gateway port with `CreateQrisChargeAsync(orderId, grossAmount, expiryMinutes)` → `{ qrString, expiresAt, gatewayRef }` using Midtrans Core API (`payment_type: qris`, acquirer per config). Webhook handling reuses API-052 verbatim (signature check + verify-then-trust status re-query); QRIS settlement maps to the same paid transition. Sandbox config documented in the compose stack.
+
+**Tests**: `Charge_returns_qr_and_expiry`, `Webhook_settlement_marks_paid_after_requery`, `Webhook_without_requery_confirmation_ignored`, `Expired_charge_never_transitions_paid`, `Amount_mismatch_rejected_and_alerted`.
+
+**Edge cases**: Midtrans 5xx/timeout on charge create → typed `gateway_unavailable` Problem Details (box shows "try again", no booking row leaks — create charge first or roll back); duplicate webhook deliveries idempotent (existing API-052 guarantee, add a QRIS-flavored test).
+
+### API-092 · Box purchase flow (pay-to-start session)
+Milestone M9 · Size L · Level senior · Depends: API-090, API-091, API-025
+
+**Context**: ADR-019 — money before session, box is the booth, no session code.
+
+**Spec**: device-authenticated `POST /api/box/purchases` (self-service devices only, staffed devices 403): validates the package against the heartbeat-delivered snapshot, creates a walk-in Booking `PendingPayment` (source=`box`) + QRIS charge, returns `{ purchaseId, qrString, amount, expiresAt }`. `GET /api/box/purchases/{id}` for polling → `pending | paid | expired`; on paid the response carries the ready session (created server-side at webhook time, bound to the purchasing device — reuse API-025's activation internals, skip the code). Per-device rate limit on creates; at most one pending purchase per device (creating a new one voids the old charge). A background sweeper expires stale purchases.
+
+**Tests**: `Staffed_device_403`, `Purchase_creates_pendingpayment_booking_and_charge`, `Poll_pending_then_paid_returns_session`, `Webhook_creates_session_bound_to_purchasing_device`, `Second_pending_purchase_voids_first`, `Expired_purchase_returns_expired_and_frees_device`, `Another_devices_purchase_404`.
+
+**Edge cases**: webhook lands *after* charge expiry (customer paid at second 899) → honor the money: purchase resurects to paid, session created — never swallow a settled payment; device revoked between create and poll → 401, charge voided by sweeper.
+
+### API-093 · Operator earnings ledger
+Milestone M9 · Size M · Level mid · Depends: API-092
+
+**Context**: ADR-019 — platform Midtrans collects; the ledger is the operators' money truth and Toku's payout source. Correct from day one.
+
+**Spec**: on every paid box purchase, append an immutable `EarningsEntry` (tenant, store, device, session, grossIDR, gatewayFeeIDR from config rate, platformFeeIDR from plan, netIDR; all integer IDR, ADR-007). `GET /api/earnings?from&to` (admin: tenant-wide; staff: own store) with daily totals. No mutation endpoints — corrections are compensating entries (platform-admin only, M10).
+
+**Tests**: `Paid_purchase_appends_entry_with_correct_split`, `Entry_immutable`, `Totals_by_day_and_store`, `Staff_scoped_to_store`, `Rounding_never_loses_a_rupiah` (fee math property test: gross = fees + net always).
+
+**Edge cases**: fee config changes → entries keep the rate captured at write time (snapshot, not reference); refund flag (M11) compensates, never edits.
+
+---
+
+## Milestone M10 — sell the box: SaaS machinery
+
+### API-100 · Tenant self-signup
+Milestone M10 · Size L · Level senior · Depends: API-020, API-026
+
+**Context**: ADR-021 activates ADR-012's deferred half. Public surface — treat as hostile.
+
+**Spec**: public `POST /api/signup` → creates `PendingSignup` (email + operator/venue name, hashed verification token, 24h expiry) and sends a verification link (notification seam may be a logged stub behind an interface — the email channel is a "Later" item, but the seam is not). Verified completion sets password and atomically creates tenant + first store + admin user + `Trial` subscription. Heavily rate-limited (per-IP and per-email), audited, enumeration-safe (identical response whether the email exists or not).
+
+**Tests**: `Signup_verify_creates_tenant_store_admin_trial_atomically`, `Expired_token_rejected`, `Token_single_use`, `Duplicate_email_response_indistinguishable`, `Rate_limits_enforced`, `New_tenant_isolated` (API-021 matrix gains a self-signup-created tenant).
+
+**Edge cases**: verified-but-abandoned completion (no password set) → resumable from the same link until expiry; tenant name collisions allowed (id is the key, name is display).
+
+### API-101 · Subscriptions: plans, lifecycle, enforcement signal
+Milestone M10 · Size L · Level senior · Depends: API-100, API-090
+
+**Context**: ADR-021 — recorded billing (ADR-005 philosophy), gateway automation later.
+
+**Spec**: `Plan` (per-box monthly price, platform fee rate, limits) + `Subscription` per tenant with lifecycle `Trial → Active → PastDue → Suspended` driven by invoice records: monthly `Invoice` rows generated by a job (amount = plan × paired boxes), platform-admin marks paid (audited). Overdue > grace days → `PastDue`; > suspend threshold → `Suspended`. Heartbeat response gains `serviceState: InService | NotInService` — `Suspended` ⇒ `NotInService`, applied by the booth only from attract (ADR-021 rule; enforcement UX is BOOTH-050). Trial converts on first invoice paid.
+
+**Tests**: `Invoice_amount_tracks_paired_box_count`, `Lifecycle_transitions_on_grace_and_suspend_thresholds`, `Suspended_heartbeat_says_notinservice`, `Active_session_never_killed_by_suspension` (integration: suspend mid-session → session completes, media delivers), `Mark_paid_reactivates_and_audited`.
+
+**Edge cases**: box paired mid-month → prorate next invoice (simple day-based proration, documented); suspended tenant's *gallery links keep working* (customers already paid — never punish them for the operator's bill).
+
+### API-102 · Platform-admin surface
+Milestone M10 · Size M · Level mid · Depends: API-101, API-093
+
+**Context**: ADR-021 — Toku above tenants. New privilege tier, audited from endpoint one.
+
+**Spec**: `platform_admin` role (seeded, never self-signup-able; JWT claim distinct from tenant admin). Endpoints: list tenants + subscription state, mark invoice paid, record payout (against a tenant's unpaid ledger balance, idempotency key), compensating earnings entry with reason, cross-tenant fleet health (device list + last heartbeat + alerts). Every endpoint audited with actor + tenant target. Tenant-scoped endpoints keep rejecting platform-admin tokens that don't impersonate — no silent god-mode reads; impersonation is explicit (`X-Acting-Tenant` + audit) or out of scope for v1 (pick explicit-header, log it).
+
+**Tests**: `Tenant_admin_403_on_platform_endpoints`, `Platform_admin_403_on_tenant_endpoints_without_acting_header`, `Payout_reduces_unpaid_balance_idempotently`, `Compensation_requires_reason_and_audits`, `Anonymous_sweep_updated` (the API-028 public allowlist gains only `/api/signup`).
+
+**Edge cases**: payout larger than unpaid balance → 422 (never negative balances); two concurrent payouts → idempotency key + row lock, one winner.
+
+### API-103 · Settlement export
+Milestone M10 · Size S · Level junior · Depends: API-093, API-102
+
+**Spec**: `GET /api/platform/settlements?period=YYYY-MM` (platform-admin) and `GET /api/earnings/export` (tenant admin): CSV per tenant/store — entries, gross/fees/net, payouts applied, closing unpaid balance. Deterministic ordering, UTF-8 BOM for Excel, streamed not buffered.
+
+**Tests**: `Csv_matches_ledger_totals`, `Balance_carries_between_periods`, `Empty_period_yields_header_only`, `Streaming_under_memory_cap` (100k-entry seed).
+
+**Edge cases**: period boundaries in store timezone? No — UTC period boundaries, documented in the header row (consistency beats local-month niceties; revisit only if operators complain).
+
+---
+
+## Milestone M11 — box field-hardening (API side)
+
+### API-110 · Payment edge-case hardening + reconciliation
+Milestone M11 · Size L · Level senior · Depends: API-092, API-093
+
+**Spec**: (1) paid-unconsumed recovery: `GET /api/box/purchases/current` returns a paid purchase whose session never reached a terminal state → box offers "Continue your session"; unrecoverable sessions transition to `RefundFlagged` (compensating ledger entry auto-drafted, operator + platform-admin notified via alert seam). (2) Nightly reconciliation job: re-query Midtrans for every non-terminal purchase older than 1h; heal missed webhooks (paid-at-gateway → run the paid path), flag mismatches. (3) Charge-expiry sweeper formalized with metrics.
+
+**Tests**: `Crash_after_paid_recovers_same_session`, `Unrecoverable_paid_session_flags_refund_and_compensates`, `Reconciliation_heals_missed_webhook`, `Reconciliation_flags_gateway_mismatch`, `Sweeper_idempotent`.
+
+**Edge cases**: recovery claimed twice (box restarted twice) → same session both times, idempotent; reconciliation running concurrently with a live webhook → row lock, single paid transition (reuse API-092's guarantee).
+
+### API-111 · Operator outage + refund visibility
+Milestone M11 · Size S · Level junior · Depends: API-110, API-036 (device health alerts)
+
+**Spec**: extend device health alerts to operator-facing: box offline > threshold or `RefundFlagged` creates an alert row the operator sees (WEB-110) — the notification *channel* (WA/email) stays a Later seam. Alert acknowledge endpoint, audited.
+
+**Tests**: `Offline_threshold_creates_operator_alert`, `Refund_flag_creates_alert`, `Ack_audited`, `Alerts_tenant_scoped`.
+
+**Edge cases**: flapping connectivity → alert debounce (one alert per outage episode, not per missed heartbeat).
+
+---
+
+*Not in any milestone: Midtrans recurring subscriptions + Iris auto-payout (ADR-019/021 upgrades), domain-based tenant resolution (ADR-012), gallery-link-on-receipt evolution (§12), notification channels (WA/email — the seams exist after API-100/111, the channels don't), AI features. M5 starts only after M4 is green; M9 starts only after M5's payment spine (API-051..052) is merged — do not start post-M4 work early.*

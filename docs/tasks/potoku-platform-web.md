@@ -380,4 +380,59 @@ Milestone M8 · Size M · Level mid · Depends: WEB-080
 
 ---
 
-*Not in any milestone: AI features (background removal, beauty filters), SaaS tenant console (self-signup, billing, plan limits — ADR-012 defers these until a second client exists).*
+## Milestone M10 — sell the box: SaaS surfaces
+
+> ADR-021 activates the deferred SaaS console. Two audiences appear: the **box operator** (a tenant admin whose primary screen is their phone) and the **platform admin** (Toku). Keep them visually distinct — an operator must never wonder whose money they're looking at.
+
+### WEB-100 · Public signup + operator onboarding
+Milestone M10 · Size L · Level mid · Depends: API-100, WEB-042 (enrollment UI)
+
+**Spec**: public marketing-adjacent signup page (brandable, ADR-012): email + venue name → "check your email" → verified completion (password, tenant/store details) → land in a first-run **onboarding checklist**: pair your box (reuses the WEB-042 enrollment flow), see your trial status, sell your first session. Enumeration-safe copy (mirror API-100's indistinguishable responses). Mobile-first — operators sign up from a phone at an expo booth.
+
+**Tests**: `Signup_happy_path_to_onboarding`, `Expired_token_friendly_retry`, `Duplicate_email_indistinguishable_copy`, `Checklist_reflects_pairing_and_first_sale`, `Mobile_viewport_no_horizontal_scroll`.
+
+**Edge cases**: verified in a different browser than signup → completion works statelessly from the link; abandoned mid-completion → resumable until token expiry.
+
+### WEB-101 · Operator earnings dashboard
+Milestone M10 · Size M · Level mid · Depends: API-093, API-103
+
+**Spec**: tenant-side earnings view: today/this-week/this-month cards (net, sessions), daily chart, per-box breakdown, entry list (gross/fees/net — fee lines always visible, never a surprise), payout history + current unpaid balance, CSV export (API-103). Mobile-first; integer IDR via `Intl` `id-ID` (WEB-041 rule).
+
+**Tests**: `Cards_match_ledger_fixtures`, `Fee_breakdown_always_rendered`, `Payout_history_and_balance`, `Export_downloads_csv`, `Staff_sees_own_store_only`.
+
+**Edge cases**: zero-earnings tenant → welcoming empty state pointing at the onboarding checklist, not a blank table; compensating (negative) entries render explicitly as corrections with their reason.
+
+### WEB-102 · Platform-admin console
+Milestone M10 · Size L · Level senior · Depends: API-102, API-103
+
+**Spec**: separate route tree + visual shell (`/platform`): tenant list (subscription state, boxes, unpaid balance), tenant detail (invoices → mark paid, payouts → record with idempotency, compensations with mandatory reason), settlement export per period, cross-tenant fleet health (device status/alerts). Explicit acting-tenant banner whenever impersonation context is active (API-102 header). Role-gated at router level; tenant admins never see the routes exist.
+
+**Tests**: `Tenant_admin_gets_404_shell_on_platform_routes`, `Mark_paid_flow_with_audit_toast`, `Payout_idempotent_on_double_click`, `Compensation_requires_reason`, `Fleet_health_renders_cross_tenant`, `Acting_tenant_banner_always_visible_when_set`.
+
+**Edge cases**: payout > unpaid balance → API 422 surfaced with the exact numbers; two tabs marking the same invoice paid → second gets a friendly already-paid state.
+
+### WEB-103 · Subscription status surfaces
+Milestone M10 · Size S · Level junior · Depends: API-101
+
+**Spec**: tenant-side subscription page (plan, box count, invoices, state) + global banner states: Trial (days left), PastDue (grace countdown, pay-instructions copy from brand/platform config), Suspended (what still works: galleries + dashboards; what doesn't: selling). Copy must say customer galleries stay live.
+
+**Tests**: `Banner_states_match_subscription_fixture`, `Suspended_copy_promises_gallery_continuity`, `Invoice_list_renders`, `No_banner_when_active`.
+
+**Edge cases**: state changes while the app is open → banner updates on next data fetch, no hard refresh required.
+
+---
+
+## Milestone M11 — box field-hardening (web side)
+
+### WEB-110 · Refund & incident queue
+Milestone M11 · Size M · Level mid · Depends: API-110, API-111
+
+**Spec**: operator-side alert inbox: box offline episodes, `RefundFlagged` sessions (customer paid, session unrecoverable — show amount, time, box, and the drafted compensation), acknowledge action (audited). Platform-admin sees the same cross-tenant (in WEB-102's shell). Badge count in the operator nav.
+
+**Tests**: `Refund_flag_renders_amount_and_draft_compensation`, `Ack_clears_badge_and_audits`, `Offline_episodes_debounced_one_row_each`, `Tenant_scoping`.
+
+**Edge cases**: alert for a since-revoked box → still visible (money questions outlive devices).
+
+---
+
+*Not in any milestone: AI features (background removal, beauty filters), Midtrans recurring self-serve billing UI (ADR-021 upgrade), domain-based tenant resolution (ADR-012).*
