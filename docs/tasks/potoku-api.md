@@ -726,9 +726,9 @@ Milestone M9 · Size S · Level junior · Depends: API-013, API-043
 
 **Context**: ADR-018 — one booth app, two products. Mode is business config, therefore server-owned (ADR-015).
 
-**Spec**: `Device.OperatingMode` enum `Staffed | SelfService` (default `Staffed`, migration backfills). Admin can set it on the device detail endpoint (audited, API-026 pattern). Heartbeat response carries the effective mode + the store's self-service package/pricing snapshot so the booth needs no extra round-trip. OpenAPI + both TS client snapshots regenerated.
+**Spec**: `Device.OperatingMode` enum `Staffed | SelfService` (default `Staffed`, migration backfills). Admin can set it on the device detail endpoint (audited, API-026 pattern). `Package` (API-022) gains a `SelfServiceEligible` flag (default false, admin-editable, audited) — the heartbeat snapshot contains **only eligible packages**, so staffed-tier packages never appear on a box. Heartbeat response carries the effective mode + that snapshot so the booth needs no extra round-trip; the snapshot is **display-only** — API-092 re-validates price/package server-side at purchase time. OpenAPI + both TS client snapshots regenerated.
 
-**Tests**: `Mode_defaults_staffed`, `Mode_change_audited_and_delivered_on_next_heartbeat`, `Selfservice_heartbeat_includes_pricing_snapshot`, `Staffed_heartbeat_omits_pricing_snapshot`.
+**Tests**: `Mode_defaults_staffed`, `Mode_change_audited_and_delivered_on_next_heartbeat`, `Selfservice_heartbeat_includes_pricing_snapshot`, `Snapshot_contains_only_selfservice_eligible_packages`, `Staffed_heartbeat_omits_pricing_snapshot`.
 
 **Edge cases**: mode flips while a session is active → booth applies it only from the next attract screen (assert the contract documents this; enforcement is BOOTH-040).
 
@@ -748,9 +748,9 @@ Milestone M9 · Size L · Level senior · Depends: API-090, API-091, API-025
 
 **Context**: ADR-019 — money before session, box is the booth, no session code.
 
-**Spec**: device-authenticated `POST /api/box/purchases` (self-service devices only, staffed devices 403): validates the package against the heartbeat-delivered snapshot, creates a walk-in Booking `PendingPayment` (source=`box`) + QRIS charge, returns `{ purchaseId, qrString, amount, expiresAt }`. `GET /api/box/purchases/{id}` for polling → `pending | paid | expired`; on paid the response carries the ready session (created server-side at webhook time, bound to the purchasing device — reuse API-025's activation internals, skip the code). Per-device rate limit on creates; at most one pending purchase per device (creating a new one voids the old charge). A background sweeper expires stale purchases.
+**Spec**: device-authenticated `POST /api/box/purchases` (self-service devices only, staffed devices 403): the **server's current package config is the price authority** — the heartbeat snapshot is display-only; a stale price/package in the request → typed `price_changed` refusal (box refreshes and re-offers). Creates a walk-in Booking `PendingPayment` (source=`box`) + QRIS charge, returns `{ purchaseId, qrString, amount, expiresAt }`. **Settlement extends API-052's branch — one money truth**: `source=box` Settled → in **one transaction**: gateway `Payment` row (exactly as API-052 writes it) + booking Confirmed + session created bound to the purchasing device (reuse API-025's activation internals, skip the code) + `EarningsEntry` (API-093). Dashboard revenue (API-035) thus includes box sales with zero new code. `GET /api/box/purchases/{id}` for polling → `pending | paid | expired`; on paid the response carries the ready session. `GET /api/box/purchases/current` returns this device's paid purchase whose session is non-terminal (boot recovery — BOOTH-043's contract lives HERE in M9; API-110 only hardens it). Per-device rate limit on creates; at most one pending purchase per device (creating a new one voids the old charge). A background sweeper expires stale purchases.
 
-**Tests**: `Staffed_device_403`, `Purchase_creates_pendingpayment_booking_and_charge`, `Poll_pending_then_paid_returns_session`, `Webhook_creates_session_bound_to_purchasing_device`, `Second_pending_purchase_voids_first`, `Expired_purchase_returns_expired_and_frees_device`, `Another_devices_purchase_404`.
+**Tests**: `Staffed_device_403`, `Stale_price_refused_with_price_changed`, `Purchase_creates_pendingpayment_booking_and_charge`, `Poll_pending_then_paid_returns_session`, `Settlement_writes_payment_row_confirms_booking_creates_session_and_earnings_atomically`, `Second_pending_purchase_voids_first`, `Expired_purchase_returns_expired_and_frees_device`, `Another_devices_purchase_404`, `Current_returns_paid_unconsumed_purchase_else_404`.
 
 **Edge cases**: webhook lands *after* charge expiry (customer paid at second 899) → honor the money: purchase resurects to paid, session created — never swallow a settled payment; device revoked between create and poll → 401, charge voided by sweeper.
 
@@ -759,9 +759,9 @@ Milestone M9 · Size M · Level mid · Depends: API-092
 
 **Context**: ADR-019 — platform Midtrans collects; the ledger is the operators' money truth and Toku's payout source. Correct from day one.
 
-**Spec**: on every paid box purchase, append an immutable `EarningsEntry` (tenant, store, device, session, grossIDR, gatewayFeeIDR from config rate, platformFeeIDR from plan, netIDR; all integer IDR, ADR-007). `GET /api/earnings?from&to` (admin: tenant-wide; staff: own store) with daily totals. No mutation endpoints — corrections are compensating entries (platform-admin only, M10).
+**Spec**: the ledger is **derived from the gateway `Payment` row, never a second money truth** — written in API-092's settlement transaction, one `EarningsEntry` per box `Payment` (tenant, store, device, session, paymentId FK, grossIDR = payment amount, gatewayFeeIDR from config rate, platformFeeIDR from a **config-default rate in M9** — API-101 migrates the source to the tenant's plan in M10 — netIDR; all integer IDR, ADR-007). Invariant, as a named test: `Σ(EarningsEntry.gross) == Σ(box gateway Payments)` over any period. `GET /api/earnings?from&to` (admin: tenant-wide; staff: own store) with daily totals. No mutation endpoints — corrections are compensating entries (platform-admin only, M10).
 
-**Tests**: `Paid_purchase_appends_entry_with_correct_split`, `Entry_immutable`, `Totals_by_day_and_store`, `Staff_scoped_to_store`, `Rounding_never_loses_a_rupiah` (fee math property test: gross = fees + net always).
+**Tests**: `Paid_purchase_appends_entry_with_correct_split`, `Entry_immutable`, `Entry_gross_always_equals_linked_payment_amount` (the one-money-truth invariant), `Totals_by_day_and_store`, `Staff_scoped_to_store`, `Rounding_never_loses_a_rupiah` (fee math property test: gross = fees + net always).
 
 **Edge cases**: fee config changes → entries keep the rate captured at write time (snapshot, not reference); refund flag (M11) compensates, never edits.
 
@@ -785,9 +785,9 @@ Milestone M10 · Size L · Level senior · Depends: API-100, API-090
 
 **Context**: ADR-021 — recorded billing (ADR-005 philosophy), gateway automation later.
 
-**Spec**: `Plan` (per-box monthly price, platform fee rate, limits) + `Subscription` per tenant with lifecycle `Trial → Active → PastDue → Suspended` driven by invoice records: monthly `Invoice` rows generated by a job (amount = plan × paired boxes), platform-admin marks paid (audited). Overdue > grace days → `PastDue`; > suspend threshold → `Suspended`. Heartbeat response gains `serviceState: InService | NotInService` — `Suspended` ⇒ `NotInService`, applied by the booth only from attract (ADR-021 rule; enforcement UX is BOOTH-050). Trial converts on first invoice paid.
+**Spec**: `Plan` (per-box monthly price, platform fee rate, limits) + `Subscription` per tenant with lifecycle `Trial → Active → PastDue → Suspended` driven by invoice records: monthly `Invoice` rows generated by a job (amount = plan × paired boxes), platform-admin marks paid (audited). Overdue > grace days → `PastDue`; > suspend threshold → `Suspended`. Heartbeat response gains `serviceState: InService | NotInService` — `Suspended` ⇒ `NotInService`, applied by the booth only from attract (ADR-021 rule; enforcement UX is BOOTH-050). **Server-side guard, not just booth UX**: API-092's purchase creation rejects (`subscription_suspended` Problem Details) when the tenant is Suspended — a stale or tampered box must not be able to sell. In-flight purchases/sessions at suspension time still settle and deliver (never strand paid money). Fee source migration: API-093's `platformFeeIDR` switches from the M9 config-default rate to the tenant's plan rate (entries keep snapshotting at write time). Trial converts on first invoice paid.
 
-**Tests**: `Invoice_amount_tracks_paired_box_count`, `Lifecycle_transitions_on_grace_and_suspend_thresholds`, `Suspended_heartbeat_says_notinservice`, `Active_session_never_killed_by_suspension` (integration: suspend mid-session → session completes, media delivers), `Mark_paid_reactivates_and_audited`.
+**Tests**: `Invoice_amount_tracks_paired_box_count`, `Lifecycle_transitions_on_grace_and_suspend_thresholds`, `Suspended_heartbeat_says_notinservice`, `Suspended_tenant_purchase_create_rejected_serverside`, `Inflight_purchase_at_suspension_still_settles`, `Active_session_never_killed_by_suspension` (integration: suspend mid-session → session completes, media delivers), `Earnings_fee_rate_comes_from_plan_after_migration`, `Mark_paid_reactivates_and_audited`.
 
 **Edge cases**: box paired mid-month → prorate next invoice (simple day-based proration, documented); suspended tenant's *gallery links keep working* (customers already paid — never punish them for the operator's bill).
 
@@ -818,7 +818,7 @@ Milestone M10 · Size S · Level junior · Depends: API-093, API-102
 ### API-110 · Payment edge-case hardening + reconciliation
 Milestone M11 · Size L · Level senior · Depends: API-092, API-093
 
-**Spec**: (1) paid-unconsumed recovery: `GET /api/box/purchases/current` returns a paid purchase whose session never reached a terminal state → box offers "Continue your session"; unrecoverable sessions transition to `RefundFlagged` (compensating ledger entry auto-drafted, operator + platform-admin notified via alert seam). (2) Nightly reconciliation job: re-query Midtrans for every non-terminal purchase older than 1h; heal missed webhooks (paid-at-gateway → run the paid path), flag mismatches. (3) Charge-expiry sweeper formalized with metrics.
+**Spec**: (1) recovery hardening — the `GET /api/box/purchases/current` endpoint **exists since API-092**; this task adds the failure tail: unrecoverable sessions transition to `RefundFlagged` (compensating ledger entry auto-drafted, operator + platform-admin notified via alert seam). (2) Nightly reconciliation job: re-query Midtrans for every non-terminal purchase older than 1h; heal missed webhooks (paid-at-gateway → run the paid path), flag mismatches. (3) Charge-expiry sweeper formalized with metrics.
 
 **Tests**: `Crash_after_paid_recovers_same_session`, `Unrecoverable_paid_session_flags_refund_and_compensates`, `Reconciliation_heals_missed_webhook`, `Reconciliation_flags_gateway_mismatch`, `Sweeper_idempotent`.
 

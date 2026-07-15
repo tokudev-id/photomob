@@ -135,7 +135,7 @@ The Potoku Box flow: F2 with payment replacing the session code, on a device in 
 Rules & resilience:
 - **Money before session**: no payment → no session, ever. Webhook is the only trusted "paid" signal; box polling is read-only.
 - **Paid but box died** (crash/power mid-session): on restart the box finds the paid-unconsumed booking and offers "Continue your session"; unrecoverable → flagged for refund in the operator dashboard, customer sees an apology screen with the operator's contact.
-- **QR expired / customer walked away**: charge expires server-side, attract resumes, nothing persisted.
+- **QR expired / customer walked away**: charge expires server-side, attract resumes; the booking row persists as Expired (audit trail) — no session, no media, nothing customer-visible.
 - **Offline box**: self-service mode requires connectivity to sell (payment is online by nature) → "Be right back" screen + operator alert; an in-flight paid session continues on the offline queues (media uploads when back).
 - **Subscription lapsed** ([ADR-021](DECISIONS.md)): box goes "not in service" from the attract screen only — never mid-session.
 
@@ -182,6 +182,15 @@ This is the **default theme of the whitelabel base** — every token below (acce
 - Gallery link open rate ≥ 80% of completed sessions
 - Zero lost-media incidents (captured but never delivered)
 - Staff can execute any after-sales action in under 1 minute
+
+**Box / self-service (Phase 2, F7)** — these decide whether the thermal-strip bet (ADR-020) is working:
+
+- QR-shown → paid conversion ≥ 40% (a shown QR is intent; below this the price or pitch is wrong)
+- Paid → strip-in-hand ≥ 97% (payment collected but no print is a refund risk, tracked via `RefundFlagged`)
+- `abandoned_paid` rate ≤ 5% of paid sessions (paid customers walking away mid-flow signals UX friction)
+- Refund-flag rate ≤ 1% of paid sessions; every flag acknowledged by the operator within 48h
+- Operator signup → first paid session ≤ 1 day (the M10 demo promise, measured continuously)
+- Box gallery link open rate tracked separately from staffed booths (the strip's QR is the main delivery path)
 
 ---
 

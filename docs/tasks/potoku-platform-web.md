@@ -403,7 +403,7 @@ Milestone M10 · Size L · Level senior · Depends: WEB-020 (admin shell), WEB-0
 ### WEB-100 · Public signup + operator onboarding
 Milestone M10 · Size L · Level mid · Depends: API-100, WEB-042 (enrollment UI), WEB-104 (shell)
 
-**Spec**: public marketing-adjacent signup page (brandable, ADR-012): email + venue name → "check your email" → verified completion (password, tenant/store details) → land in a first-run **onboarding checklist**: pair your box (reuses the WEB-042 enrollment flow), see your trial status, sell your first session. Enumeration-safe copy (mirror API-100's indistinguishable responses). Mobile-first — operators sign up from a phone at an expo booth.
+**Spec**: public marketing-adjacent signup page — **Potoku product-branded** (no tenant exists yet; tenant whitelabel per ADR-012 starts at their customer-facing surfaces, consistent with WEB-104's chrome-vs-content boundary): email + venue name → "check your email" → verified completion (password, tenant/store details) → land in a first-run **onboarding checklist**: pair your box (reuses the WEB-042 enrollment flow), see your trial status, sell your first session. Enumeration-safe copy (mirror API-100's indistinguishable responses). Mobile-first — operators sign up from a phone at an expo booth.
 
 **Tests**: `Signup_happy_path_to_onboarding`, `Expired_token_friendly_retry`, `Duplicate_email_indistinguishable_copy`, `Checklist_reflects_pairing_and_first_sale`, `Mobile_viewport_no_horizontal_scroll`.
 

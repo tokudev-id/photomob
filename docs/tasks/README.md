@@ -57,7 +57,7 @@ M8  WEB-080..081  (no API/booth work)                    "a template designed wi
 —— Box pivot (ADR-018..021): M9 needs M5's payment spine (API-051..052) merged ——
 
 M9  API-090..093  →  BOOTH-040..044                      "stranger pays by QRIS, walks away with a strip — no staff"
-M10 WEB-104 (shell first!) → API-100..103 → WEB-100..103 "operator signs up, pairs a box, sells the same day"
+M10 (WEB-104 ∥ API-100..103) → WEB-100..103           "operator signs up, pairs a box, sells the same day"
 M11 API-110..111  +  BOOTH-050..051  +  WEB-110          "cable pulled — box closes politely, operator saw it"
 ```
 

@@ -449,9 +449,9 @@ Milestone M9 · Size L · Level senior · Depends: BOOTH-015 (IPrinter seam), AP
 **Edge cases**: paper-out mid-print (where detectable via status callback) → operator alert + reprint offer, QR screen unaffected; 58mm rolls (384px) behind config — certify 80mm first, don't hardcode 576.
 
 ### BOOTH-043 · Paid-session recovery
-Milestone M9 · Size S · Level mid · Depends: BOOTH-041, API-110 contract stub (recovery endpoint may land as API-092's paid-poll until M11)
+Milestone M9 · Size S · Level mid · Depends: BOOTH-041, API-092 (`/api/box/purchases/current` lives there; API-110 only hardens the failure tail)
 
-**Spec**: on boot in self-service mode, ask the API for a paid-unconsumed purchase (`/api/box/purchases/current`); if found → "Continue your session" screen (big, friendly, 60s timeout → apology + operator contact from brand config, session flagged for refund server-side). Never re-charge.
+**Spec**: on boot in self-service mode, ask the API for a paid-unconsumed purchase (`/api/box/purchases/current`); if found → "Continue your session" screen (big, friendly, 60s timeout → apology + operator contact from brand config, and a `recovery_timeout` session event — API-110 (M11) escalates these to `RefundFlagged`; in M9 they're operator-visible via session events). Never re-charge.
 
 **Tests**: `Boot_with_paid_unconsumed_offers_continue`, `Continue_enters_session_with_original_package`, `Timeout_shows_apology_and_flags`, `Clean_boot_goes_to_attract`.
 
