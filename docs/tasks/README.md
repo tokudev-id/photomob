@@ -4,9 +4,12 @@
 
 | File | Repo | Program |
 |---|---|---|
-| [potoku-api.md](potoku-api.md) | [potoku-api](https://github.com/tokudev-id/potoku-api) | .NET 8 backend (Clean Architecture + DDD) |
-| [potoku-booth.md](potoku-booth.md) | [potoku](https://github.com/tokudev-id/potoku) | Electron booth app |
-| [potoku-platform-web.md](potoku-platform-web.md) | [potoku-platform-web](https://github.com/tokudev-id/potoku-platform-web) | React + Vite SPA (admin + SaaS + gallery) |
+| [potoku-api.md](potoku-api.md) | [potoku-api](https://github.com/tokudev-id/potoku-api) | .NET 8 backend (Clean Architecture + DDD) — MVP M0–M7 |
+| [potoku-booth.md](potoku-booth.md) | [potoku](https://github.com/tokudev-id/potoku) | Electron booth app — MVP M0–M6 |
+| [potoku-platform-web.md](potoku-platform-web.md) | [potoku-platform-web](https://github.com/tokudev-id/potoku-platform-web) | React + Vite SPA (admin + SaaS + gallery) — MVP M0–M8 |
+| [potoku-api-phase2.md](potoku-api-phase2.md) | potoku-api | **Phase 2 (Box pivot)** — API-090..111, M9–M11 |
+| [potoku-booth-phase2.md](potoku-booth-phase2.md) | potoku | **Phase 2 (Box pivot)** — BOOTH-040..051, M9 + M11 |
+| [potoku-platform-web-phase2.md](potoku-platform-web-phase2.md) | potoku-platform-web | **Phase 2 (Box pivot)** — WEB-100..110, M10 + M11 |
 
 ---
 
