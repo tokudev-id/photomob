@@ -533,6 +533,15 @@ Milestone M4 · Size M · Level mid · Depends: API-004, API-014, BOOTH-004 merg
 
 **AC**: suite green 3 consecutive nightly runs.
 
+### API-043 · One-time booth device enrollment
+Milestone M4 · Size L · Level senior · Depends: API-013, API-020, API-028; cross-repo: WEB-042, BOOTH-022
+
+**Spec**: admin creates a ten-minute `DeviceEnrollment` for an active tenant store and receives an eight-character code once; anonymous claim is IP- and code-rate-limited, row-locked, atomically creates the device, stores only keyed hashes, and returns the permanent token only to the booth. A persisted booth claim UUID makes a lost-response retry derive the same credential without creating another device. Admin can cancel enrollments and revoke or rotate tokens. Enrollment list states are Pending, Paired (first heartbeat received and online), Offline, Expired, Cancelled, and Revoked. OpenAPI and both TS client snapshots change together.
+
+**Tests**: authorization and store scope; expiry boundary; cancellation; concurrent one-winner claims; same-claim retry; different-claim rejection; per-IP and per-code limits; revoked token rejected on next request; no plaintext code/token at rest or in audit payloads.
+
+**Edge cases**: a claimed booth that loses the HTTP response re-enters the same human code and reuses its locally persisted claim UUID; a different booth never receives that credential. Camera selection is not part of enrollment and never changes identity (ADR-015, ADR-017).
+
 ---
 
 ## Milestone M5 — online booking & payment gateway

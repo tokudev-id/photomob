@@ -318,11 +318,11 @@ Milestone M2 · Size M · Level junior · Depends: API-025, BOOTH-003
 **Edge cases**: staff testing with the booth offline → dev-mode bypass behind settings flag, banner-marked, impossible in kiosk build (compile-time flag).
 
 ### BOOTH-022 · First-run pairing wizard
-Milestone M2 · Size S · Level junior · Depends: BOOTH-018, API-013
+Milestone M2 · Size M · Level mid · Depends: BOOTH-018, API-043
 
-**Spec**: fresh install boot → guided steps: API URL → device token (from admin's create-device screen) → test roundtrip → set settings passcode → land on settings for hardware pick (BOOTH-018) → hardware check (BOOTH-019) prompt. Re-runnable from settings ("re-pair device", requires passcode).
+**Spec**: fresh install boot → API URL → one-time pairing code → local 4–8 digit staff passcode. Before claim, persist only a random claim UUID; never persist the human code. Claim returns the permanent token directly to main process, which verifies it with an authenticated heartbeat before atomically saving it and clearing the retry UUID. Typed invalid/expired/used/cancelled/rate-limit/network messages keep the operator in the flow; a lost claim response is safe to retry. Land on settings for Webcam/DSLR/fallback selection (BOOTH-018) and hardware check (BOOTH-019). Re-pairing remains staff-passcode-gated and camera changes retain identity.
 
-**Tests**: `Fresh_boot_enters_wizard_when_no_token`, `Invalid_token_stays_on_step_with_error`, `Completion_writes_settings_and_lands_attract`.
+**Tests**: `Fresh_boot_enters_wizard_when_no_token`, `Invalid_code_stays_on_step_with_error`, `Lost_claim_response_reuses_claim_id`, `Completion_persists_only_device_token`, `Repair_requires_current_passcode`.
 
 ---
 

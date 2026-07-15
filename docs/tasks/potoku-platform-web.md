@@ -230,6 +230,13 @@ Milestone M4 · Size L · Level mid · Depends: all customer-facing screens
 
 **Edge cases**: mixed: brand overrides only one locale → other locale falls back to its default (not the overridden other-locale string); currency/date formatting via `Intl` with explicit `id-ID` (never rely on host locale for money display).
 
+### WEB-042 · Admin booth enrollment
+Milestone M4 · Size M · Level mid · Depends: API-043, WEB-020, WEB-040
+
+**Spec**: admin-only Register booth action on Devices: active-store picker, recognizable name, create/loading/error states, one-time code with second-by-second expiry, Copy, Cancel, and Generate new code. List Pending, Paired, Offline, Expired, Cancelled, and Revoked distinctly; allow cancellation and token revocation. Pairing codes and device tokens never enter local/session storage, URLs, analytics, or logs. Success copy sends the operator to booth-local camera/printer setup and hardware check.
+
+**Tests**: admin role gate; store/name validation; countdown; typed create/cancel failures; regenerate cancels the old code; no browser persistence; first heartbeat moves Pending to Paired.
+
 ---
 
 ## Milestone M5 — online booking & checkout
