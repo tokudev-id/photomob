@@ -76,4 +76,63 @@ Milestone M11 · Size M · Level mid · Depends: API-110, API-111
 ---
 ---
 
+## Implementation log
+
+### 2026-07-16 — WEB-104 complete (Codex)
+
+- Replaced tenant-themed admin chrome with a Potoku product shell: persistent grouped sidebar, slim store-context topbar, user menu, and tablet/mobile navigation.
+- Added a single semantic admin token file with slate surfaces, one restrained accent, role/state colors, an 8px spacing grid, and explicit dark-theme overrides.
+- Restyled existing dashboard, booking, device, template, after-sales, package, brand, and store surfaces through isolated admin tokens; tenant-branded gallery, booking, receipt, and preview content remain outside the product-token scope.
+- Preserved all existing route paths and added an admin-only nested route guard for package, template, brand, and store deep links.
+- Added the required WEB-104 tests and public-route snapshots plus `docs/phase2-web104-qa.md` for PR screenshot QA.
+- Validation: `npx eslint src`, 77 Vitest tests, `npm run build`, `git diff --check`, and the Impeccable deterministic design scan pass. Repository-wide `npm run lint` remains affected by pre-existing untracked `.github/skills` files outside this implementation.
+- The generated web client has no API-100–103 or API-110/111 operations; on 2026-07-16 the user directed all Phase 2 web work to proceed, so remaining screens use a contained typed compatibility adapter until the generated contract catches up.
+
+### 2026-07-16 — WEB-100 complete (Codex)
+
+- Added product-branded `/signup` and stateless `/signup/complete?token=…` routes with enumeration-safe confirmation, rate-limit/network handling, and friendly expired-link recovery.
+- Completion persists only tenant/store/timezone draft fields per token (never passwords), accepts auth tokens atomically, and lands at `/admin/onboarding` even when the verification link opens in another browser.
+- Added a first-run checklist backed by onboarding status, with trial visibility, paired-box and first-sale progress, direct links to sell/earnings, and inline reuse of WEB-042's `RegistrationPanel`.
+- Added signup/onboarding responsive styles and the five named WEB-100 tests.
+- Validation after this step: typecheck passes; `SignupPage.test.tsx` passes 5/5.
+
+### 2026-07-16 — WEB-101 complete (Codex)
+
+- Added the tenant earnings route with today/week/month net and session summaries, daily net visualization, per-box totals, and an explicit gross/gateway-fee/platform-fee/net ledger.
+- Added payout history, current unpaid balance, correction entries with mandatory visible reasons, and a first-sale onboarding empty state.
+- Added authenticated CSV downloads with UTC period boundaries and store-scoped requests; staff requests are always pinned to their assigned store.
+- Added mobile/container-responsive report layouts and locale-safe integer IDR formatting through `Intl.NumberFormat("id-ID")`.
+- Validation after this step: typecheck passes; `EarningsPage.test.tsx` passes 5/5.
+
+### 2026-07-16 — WEB-102 complete (Codex)
+
+- Added a separately styled `/platform` shell and route tree with a router-level `PlatformAdmin` guard; tenant admins receive a product-branded 404 without platform navigation disclosure.
+- Added the tenant operations list/detail surfaces, subscription and box summaries, invoice paid actions, payout recording with synchronous double-submit protection and a stable idempotency key, and reason-required compensating entries.
+- Added exact 422 balance/amount feedback, friendly concurrent already-paid handling, settlement CSV downloads by UTC month, and server-confirmed audit feedback.
+- Added cross-tenant fleet health plus explicit acting-tenant session context; authenticated API calls include `X-Acting-Tenant` and the shell keeps the audited context visibly pinned until exited.
+- Validation after this step: typecheck passes; `PlatformPages.test.tsx` passes 6/6.
+
+### 2026-07-16 — WEB-103 complete (Codex)
+
+- Added the admin subscription page with lifecycle state, plan pricing, paired-box count, platform fee rate, payment instructions, and invoice history.
+- Added shell-level Trial, PastDue, and Suspended banners; Active has no banner, and suspension copy explicitly preserves dashboards and customer gallery continuity while explaining that new selling pauses.
+- Subscription state silently refetches after other successful API reads and on focus/visibility changes, so lifecycle transitions appear without a hard refresh.
+- Added responsive subscription summaries and invoice rows plus the four named tests and a live-refetch edge-case test.
+- Validation after this step: typecheck passes; `SubscriptionPage.test.tsx` passes 5/5 without warnings.
+
+### 2026-07-16 — WEB-110 complete (Codex)
+
+- Added tenant-scoped `/admin/incidents` and cross-tenant `/platform/incidents` queues for debounced box-offline episodes and `RefundFlagged` sessions.
+- Refund rows show customer-paid amount, incident time, box, drafted compensation, and retained context when a box has since been revoked; platform rows additionally identify the tenant.
+- Added audited acknowledgement with optimistic row and nav-badge updates plus full rollback if the server rejects the acknowledgement.
+- Added live unacknowledged counts in tenant and platform navigation, with tenant mode deliberately exposing no tenant selector or tenant identity.
+- Validation after this step: typecheck passes; `IncidentQueuePage.test.tsx` passes 4/4.
+
+### 2026-07-16 — Phase 2 web final validation (Codex)
+
+- All scoped tasks are complete: WEB-104, WEB-100, WEB-101, WEB-102, WEB-103, and WEB-110.
+- Final validation: 21 Vitest files and 102 tests pass; `npx eslint src`, `npm run build`, and `git diff --check` pass.
+- The Impeccable deterministic scan over all changed UI/CSS targets reports zero findings after replacing two side-tab accent patterns with quieter status cues.
+- The generated OpenAPI client still predates API-100–103 and API-110/111; all Phase 2 calls remain isolated in `src/lib/api/phase2.ts` so they can be replaced mechanically when the generated contract lands.
+
 *Not in any milestone: Midtrans recurring self-serve billing UI (ADR-021 upgrade), domain-based tenant resolution (ADR-012).*
